@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
 import App from '~/App'
 import { queryClient } from '~/lib/query-client'
@@ -13,7 +13,7 @@ if (!rootElement) {
   throw new Error('Root element not found')
 }
 
-createRoot(rootElement).render(
+const tree = (
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -21,5 +21,11 @@ createRoot(rootElement).render(
         <Toaster position="top-right" richColors />
       </TooltipProvider>
     </QueryClientProvider>
-  </StrictMode>,
+  </StrictMode>
 )
+
+if (rootElement.dataset.prerendered === 'true') {
+  hydrateRoot(rootElement, tree)
+} else {
+  createRoot(rootElement).render(tree)
+}

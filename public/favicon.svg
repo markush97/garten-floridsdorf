@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#1f3d2b"/>
-  <!-- stem -->
-  <line x1="32" y1="48" x2="32" y2="30" stroke="#7ab52e" stroke-width="3" stroke-linecap="round"/>
-  <!-- left leaf -->
-  <path d="M32 38 Q20 30 22 18 Q34 22 32 38Z" fill="#7ab52e"/>
-  <!-- right leaf -->
-  <path d="M32 34 Q44 26 42 14 Q30 18 32 34Z" fill="#7ab52e" opacity="0.8"/>
-</svg>

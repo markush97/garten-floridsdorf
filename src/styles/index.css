@@ -1,4 +1,5 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap");
+@import "@fontsource-variable/fraunces/standard.css";
+@import "@fontsource-variable/inter/standard.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -12,14 +13,14 @@
   --color-beet-700: #7a1f3d;
   --color-cream-50: #f5f0e1;
   --color-wood-600: #8b5a2b;
-  --font-display: "Fraunces", Georgia, serif;
-  --font-sans: "Inter", "Segoe UI", sans-serif;
+  --font-display: "Fraunces Variable", "Fraunces", Georgia, serif;
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", sans-serif;
 }
 
 :root {
   color: #213628;
   background-color: #f5f0e1;
-  font-family: "Inter", "Segoe UI", sans-serif;
+  font-family: "Inter Variable", "Inter", "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -88,6 +89,264 @@ button:focus-visible {
   outline-offset: 3px;
 }
 
+/* --- Custom animations & utilities -------------------------------------- */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(var(--rot, 0deg));
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) rotate(calc(var(--rot, 0deg) + 6deg));
+  }
+}
+
+@keyframes drift-x {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-80px, 0, 0);
+  }
+}
+
+@keyframes leaf-fall {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--leaf-opacity, 0.55);
+  }
+  90% {
+    opacity: var(--leaf-opacity, 0.55);
+  }
+  100% {
+    transform: translate3d(var(--leaf-drift, 60px), 110vh, 0) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes nudge-right {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes word-rise {
+  from {
+    transform: translate3d(0, 110%, 0);
+    opacity: 0;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes mesh-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12%, -8%, 0) scale(1.18);
+  }
+}
+
+@keyframes mesh-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-14%, 10%, 0) scale(1.1);
+  }
+}
+
+@keyframes mesh-drift-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.95);
+  }
+  50% {
+    transform: translate3d(6%, 14%, 0) scale(1.2);
+  }
+}
+
+@keyframes sprout-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes sprout-pop {
+  0% {
+    transform: scale(0) rotate(var(--leaf-rot, 0deg));
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15) rotate(var(--leaf-rot, 0deg));
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(var(--leaf-rot, 0deg));
+    opacity: 1;
+  }
+}
+
+.reveal {
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  animation: fade-up 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--reveal-delay, 0ms);
+}
+
+.animate-float {
+  animation: float-y 6s ease-in-out infinite;
+}
+
+.animate-drift {
+  animation: drift-x 18s linear infinite;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 3.2s ease-in-out infinite;
+}
+
+.animate-nudge-right {
+  animation: nudge-right 1.6s ease-in-out infinite;
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    100deg,
+    #f5f0e1 0%,
+    #f5f0e1 40%,
+    #c8e7a4 50%,
+    #f5f0e1 60%,
+    #f5f0e1 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 5.5s linear infinite;
+}
+
+.paper-texture {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(31, 61, 43, 0.05) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+}
+
+.word-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  line-height: 1.05;
+  padding-bottom: 0.08em;
+}
+
+.word-mask > span {
+  display: inline-block;
+  transform: translate3d(0, 110%, 0);
+  opacity: 0;
+  animation: word-rise 760ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--word-i, 0) * 90ms + 120ms);
+}
+
+.mesh-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.mesh-blob-a {
+  background: radial-gradient(circle, #7ab52e 0%, transparent 70%);
+  animation: mesh-drift-a 18s ease-in-out infinite;
+}
+
+.mesh-blob-b {
+  background: radial-gradient(circle, #7a1f3d 0%, transparent 70%);
+  animation: mesh-drift-b 22s ease-in-out infinite;
+}
+
+.mesh-blob-c {
+  background: radial-gradient(circle, #f5f0e1 0%, transparent 70%);
+  animation: mesh-drift-c 26s ease-in-out infinite;
+  opacity: 0.32;
+}
+
+.sprout-stem {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: sprout-draw 900ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  animation-delay: var(--sprout-delay, 0ms);
+}
+
+.sprout-leaf {
+  transform-origin: var(--leaf-origin, 50% 50%);
+  transform: scale(0);
+  opacity: 0;
+  animation: sprout-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: var(--leaf-delay, 0ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -102,11 +361,34 @@ button:focus-visible {
   button:hover {
     transform: none;
   }
+
+  .reveal,
+  .reveal.is-visible,
+  .animate-float,
+  .animate-drift,
+  .animate-pulse-soft,
+  .animate-nudge-right,
+  .shimmer-text,
+  .word-mask > span,
+  .mesh-blob-a,
+  .mesh-blob-b,
+  .mesh-blob-c,
+  .sprout-stem,
+  .sprout-leaf {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: inherit;
+    stroke-dashoffset: 0;
+  }
 }
 
 @theme inline {
-  --font-heading: "Fraunces", Georgia, serif;
-  --font-sans: "Inter", "Segoe UI", sans-serif;
+  --font-heading: "Fraunces Variable", "Fraunces", Georgia, serif;
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

@@ -1,6 +1,6 @@
 # SV Beet & Bewegung
 
-<img src="public/logo.png" alt="SV Beet & Bewegung Logo" width="180" />
+<img src="public/brand/logo.png" alt="SV Beet & Bewegung Logo" width="180" />
 
 Family calendar, date polling and doodle scheduling for two families and their shared garden in Floridsdorf, Vienna.
 
