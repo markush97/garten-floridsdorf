@@ -3,10 +3,12 @@ import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import {
+  useAddPollOptions,
   useAdminPolls,
   useCreatePoll,
   useFinalizePoll,
 } from '~/services/admin.service'
+import { usePoll } from '~/services/poll.service'
 import { Button } from '~/ui/button'
 import { DatePicker } from '~/ui/date-picker'
 import { Input } from '~/ui/input'
@@ -217,10 +219,71 @@ export default function PollEditor({ pollId }: Props) {
 
 function PollDetailEditor({ pollId }: { pollId: number }) {
   const { data: polls } = useAdminPolls()
-  const poll = polls?.find((p) => p.id === pollId)
+  const pollSummary = polls?.find((p) => p.id === pollId)
+  const { data: poll } = usePoll(pollSummary?.slug ?? '')
   const { mutate: finalizePoll, isPending: isFinalizing } = useFinalizePoll()
+  const { mutate: addOptions, isPending: isAdding } = useAddPollOptions()
 
-  if (!poll) {
+  const newUidRef = useRef(0)
+  const [newOptions, setNewOptions] = useState<OptionDraft[]>([])
+
+  function addNewOptionRow() {
+    newUidRef.current += 1
+    setNewOptions((prev) => [
+      ...prev,
+      { uid: newUidRef.current, label: '', date: undefined, time: '' },
+    ])
+  }
+
+  function updateNewOption(idx: number, patch: Partial<OptionDraft>) {
+    setNewOptions((prev) =>
+      prev.map((opt, i) => (i === idx ? { ...opt, ...patch } : opt)),
+    )
+  }
+
+  function removeNewOption(idx: number) {
+    setNewOptions((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function handleNewOptionTime(idx: number, raw: string) {
+    const digits = raw.replace(/\D/g, '').slice(0, 4)
+    const formatted =
+      digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits
+    updateNewOption(idx, { time: formatted })
+  }
+
+  function handleAddOptions() {
+    const valid = newOptions.filter((o) => o.date)
+    if (valid.length === 0) {
+      toast.error('Mindestens eine Terminoption mit Datum benötigt.')
+      return
+    }
+    addOptions(
+      {
+        id: pollId,
+        data: {
+          options: valid.map((o) => ({
+            label:
+              o.label.trim() ||
+              dayjs(o.date).tz(DEFAULT_TIMEZONE).format('dddd'),
+            date: dayjs(o.date).format('YYYY-MM-DD'),
+            time: /^([01]\d|2[0-3]):[0-5]\d$/.test(o.time.trim())
+              ? o.time.trim()
+              : undefined,
+          })),
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success('Neue Terminoptionen hinzugefügt.')
+          setNewOptions([])
+        },
+        onError: () => toast.error('Fehler beim Hinzufügen der Optionen.'),
+      },
+    )
+  }
+
+  if (!pollSummary) {
     return (
       <EditorShell title="Umfrage">
         <p className="text-forest-700/60">Umfrage nicht gefunden.</p>
@@ -231,16 +294,24 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
     )
   }
 
+  const sortedOptions = poll
+    ? [...poll.options].sort((a, b) => {
+        const dateCmp = a.date.localeCompare(b.date)
+        if (dateCmp !== 0) return dateCmp
+        return (a.time ?? '').localeCompare(b.time ?? '')
+      })
+    : []
+
   return (
-    <EditorShell title={poll.title}>
-      <div className="space-y-4">
+    <EditorShell title={pollSummary.title}>
+      <div className="space-y-6">
         <div className="flex flex-col gap-3 rounded-[1.25rem] bg-white/75 p-5 ring-1 ring-inset ring-white/40">
           <div className="flex items-center justify-between">
             <span className="text-sm text-forest-700/70">Status</span>
             <span className="text-sm font-medium">
-              {poll.final_option_id
+              {pollSummary.final_option_id
                 ? 'Termin festgelegt'
-                : poll.is_active
+                : pollSummary.is_active
                   ? 'Aktiv'
                   : 'Archiv'}
             </span>
@@ -249,32 +320,155 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
             <span className="text-sm text-forest-700/70">Abstimmungslink</span>
             <a
               className="text-sm text-forest-700 underline"
-              href={`/abstimmung/${poll.slug}`}
+              href={`/abstimmung/${pollSummary.slug}`}
               rel="noreferrer"
               target="_blank"
             >
-              /poll/{poll.slug}
+              /poll/{pollSummary.slug}
             </a>
           </div>
         </div>
 
-        {poll.is_active && !poll.final_option_id && (
-          <Button
-            className="w-full sm:w-auto"
-            disabled={isFinalizing}
-            onClick={() =>
-              finalizePoll(
-                { id: poll.id, data: { closed: true } },
-                {
-                  onSuccess: () => toast.success('Umfrage geschlossen.'),
-                  onError: () => toast.error('Fehler.'),
-                },
-              )
-            }
-            variant="outline"
-          >
-            {isFinalizing ? 'Wird geschlossen …' : 'Umfrage schließen'}
-          </Button>
+        <Separator />
+
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-forest-900">
+            Vorhandene Terminoptionen
+          </p>
+          {sortedOptions.length === 0 ? (
+            <p className="text-sm text-forest-700/60">
+              Noch keine Terminoptionen.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {sortedOptions.map((opt) => {
+                const label = dayjs(opt.date)
+                  .tz(DEFAULT_TIMEZONE)
+                  .format('dddd, D. MMMM YYYY')
+                return (
+                  <li
+                    className="flex flex-col gap-1 rounded-[1rem] bg-white/60 px-4 py-3 ring-1 ring-inset ring-forest-900/8 sm:flex-row sm:items-center sm:justify-between"
+                    key={opt.id}
+                  >
+                    <span className="font-medium text-forest-900">
+                      {label}
+                      {opt.time && (
+                        <span className="ml-2 text-sm font-normal text-forest-700/70">
+                          {opt.time} Uhr
+                        </span>
+                      )}
+                    </span>
+                    {opt.label && (
+                      <span className="text-sm text-forest-700/70">
+                        {opt.label}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-forest-900">
+            Neue Terminoptionen hinzufügen
+          </p>
+          {newOptions.map((opt, idx) => (
+            <div
+              className="flex flex-col gap-2 rounded-[1rem] bg-white/60 p-4 ring-1 ring-inset ring-forest-900/8 sm:flex-row sm:items-end"
+              key={opt.uid}
+            >
+              <div className="flex-1 space-y-1.5">
+                <Label>Datum</Label>
+                <DatePicker
+                  onChange={(date) => updateNewOption(idx, { date })}
+                  value={opt.date}
+                />
+              </div>
+              <div className="space-y-1.5 sm:w-32">
+                <Label htmlFor={`new-opt-time-${idx}`}>
+                  Uhrzeit (optional)
+                </Label>
+                <Input
+                  id={`new-opt-time-${idx}`}
+                  inputMode="numeric"
+                  maxLength={5}
+                  onChange={(e) => handleNewOptionTime(idx, e.target.value)}
+                  placeholder="HH:mm"
+                  value={opt.time}
+                />
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor={`new-opt-label-${idx}`}>
+                  Bezeichnung (optional)
+                </Label>
+                <Input
+                  id={`new-opt-label-${idx}`}
+                  maxLength={200}
+                  onChange={(e) =>
+                    updateNewOption(idx, { label: e.target.value })
+                  }
+                  placeholder="z. B. Vormittag"
+                  value={opt.label}
+                />
+              </div>
+              <Button
+                aria-label={`Neue Option ${idx + 1} entfernen`}
+                className="shrink-0 self-end text-beet-700 hover:bg-beet-700/10 hover:text-beet-700"
+                onClick={() => removeNewOption(idx)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Entfernen
+              </Button>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={addNewOptionRow}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              + Option hinzufügen
+            </Button>
+            {newOptions.length > 0 && (
+              <Button
+                disabled={isAdding}
+                onClick={handleAddOptions}
+                size="sm"
+                type="button"
+              >
+                {isAdding ? 'Wird gespeichert …' : 'Optionen speichern'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {pollSummary.is_active && !pollSummary.final_option_id && (
+          <>
+            <Separator />
+            <Button
+              className="w-full sm:w-auto"
+              disabled={isFinalizing}
+              onClick={() =>
+                finalizePoll(
+                  { id: pollSummary.id, data: { closed: true } },
+                  {
+                    onSuccess: () => toast.success('Umfrage geschlossen.'),
+                    onError: () => toast.error('Fehler.'),
+                  },
+                )
+              }
+              variant="outline"
+            >
+              {isFinalizing ? 'Wird geschlossen …' : 'Umfrage schließen'}
+            </Button>
+          </>
         )}
 
         <Link

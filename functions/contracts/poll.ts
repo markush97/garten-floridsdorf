@@ -59,7 +59,8 @@ export const submitVotesInputSchema = z.object({
     .array(
       z.object({
         option_id: z.number().int().positive(),
-        response: z.enum(['yes', 'no', 'maybe']),
+        // `null` clears any existing vote for this option ("keine Angabe").
+        response: z.enum(['yes', 'no', 'maybe']).nullable(),
         comment: z.string().max(500).optional(),
       }),
     )
@@ -75,9 +76,23 @@ export const finalizePollInputSchema = z.object({
   closed: z.boolean().optional(),
 })
 
+export const addPollOptionsInputSchema = z.object({
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(200),
+        date: z.string().min(1),
+        time: timeOfDaySchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+})
+
 export type PollOption = z.infer<typeof pollOptionSchema>
 export type Vote = z.infer<typeof voteSchema>
 export type Poll = z.infer<typeof pollSchema>
 export type CreatePollInput = z.infer<typeof createPollInputSchema>
 export type SubmitVotesInput = z.infer<typeof submitVotesInputSchema>
 export type FinalizePollInput = z.infer<typeof finalizePollInputSchema>
+export type AddPollOptionsInput = z.infer<typeof addPollOptionsInputSchema>

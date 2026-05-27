@@ -9,12 +9,14 @@ import {
 import { createDb } from '../functions/_lib/db'
 import { AppError, makeError } from '../functions/_lib/errors'
 import {
+  addPollOptionsInputSchema,
   adminLoginInputSchema,
   createPollInputSchema,
   finalizePollInputSchema,
   submitVotesInputSchema,
 } from '../functions/contracts/poll'
 import {
+  addPollOptions,
   createPollWithOptions,
   deletePoll,
   finalizePoll,
@@ -167,6 +169,21 @@ app.patch('/admin/polls/:id', async (c) => {
   }
   const db = createDb(c.env.DB)
   const poll = await finalizePoll(db, id, parsed.data)
+  return c.json(poll)
+})
+
+app.post('/admin/polls/:id/options', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = addPollOptionsInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const poll = await addPollOptions(db, id, parsed.data)
   return c.json(poll)
 })
 

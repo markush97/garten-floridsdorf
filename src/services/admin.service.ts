@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '~/lib/api-client'
 import { queryKeys } from '~/lib/query-keys'
 import type {
+  AddPollOptionsInput,
   CreatePollInput,
   FinalizePollInput,
   Poll,
@@ -73,6 +74,24 @@ export function useDeletePoll() {
       apiClient<{ ok: boolean }>(`/admin/polls/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.polls.admin })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.polls.active })
+    },
+  })
+}
+
+export function useAddPollOptions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: AddPollOptionsInput }) =>
+      apiClient<Poll>(`/admin/polls/${id}/options`, {
+        method: 'POST',
+        body: data,
+      }),
+    onSuccess: (_data, { id }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.polls.admin })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.polls.detail(String(id)),
+      })
       void queryClient.invalidateQueries({ queryKey: queryKeys.polls.active })
     },
   })

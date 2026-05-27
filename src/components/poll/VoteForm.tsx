@@ -11,7 +11,7 @@ import { Label } from '~/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/ui/tooltip'
 import type { Poll } from '~func/contracts/poll'
 
-type ResponseValue = 'yes' | 'no' | 'maybe'
+type ResponseValue = 'yes' | 'no' | 'maybe' | 'none'
 
 type SavedVote = {
   voter_name: string
@@ -43,6 +43,12 @@ const RESPONSE_OPTIONS: Array<{
     label: 'Vielleicht',
     classes:
       'data-[active=true]:bg-wood-600 data-[active=true]:text-white data-[active=true]:ring-wood-600',
+  },
+  {
+    value: 'none',
+    label: 'Keine Angabe',
+    classes:
+      'data-[active=true]:bg-forest-900/70 data-[active=true]:text-white data-[active=true]:ring-forest-900/70',
   },
 ]
 
@@ -123,11 +129,17 @@ export default function VoteForm({ poll }: Props) {
     submitVotes(
       {
         voter_name: name,
-        responses: poll.options.map((opt) => ({
-          option_id: opt.id,
-          response: responses[opt.id] as ResponseValue,
-          comment: comments[opt.id]?.trim() || undefined,
-        })),
+        responses: poll.options.map((opt) => {
+          const value = responses[opt.id] as ResponseValue
+          return {
+            option_id: opt.id,
+            response: value === 'none' ? null : value,
+            comment:
+              value === 'none'
+                ? undefined
+                : comments[opt.id]?.trim() || undefined,
+          }
+        }),
       },
       {
         onSuccess: () => {

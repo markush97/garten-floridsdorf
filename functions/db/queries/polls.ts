@@ -1,9 +1,13 @@
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { nowUtc } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
 import { generateSlug } from '../../_lib/slug'
-import type { CreatePollInput, FinalizePollInput } from '../../contracts/poll'
+import type {
+  AddPollOptionsInput,
+  CreatePollInput,
+  FinalizePollInput,
+} from '../../contracts/poll'
 import { poll_options, polls, votes } from '../schema'
 
 export async function findPollOrThrow(db: Database, id: number) {
@@ -33,7 +37,11 @@ export async function findPollWithDetails(db: Database, id: number) {
     .select()
     .from(poll_options)
     .where(eq(poll_options.poll_id, id))
-    .orderBy(asc(poll_options.sort_order), asc(poll_options.date))
+    .orderBy(
+      asc(poll_options.date),
+      asc(poll_options.time),
+      asc(poll_options.sort_order),
+    )
     .all()
   const pollVotes = await db
     .select()
@@ -109,10 +117,41 @@ export async function createPollWithOptions(
     .select()
     .from(poll_options)
     .where(eq(poll_options.poll_id, newPoll.id))
-    .orderBy(asc(poll_options.sort_order))
+    .orderBy(
+      asc(poll_options.date),
+      asc(poll_options.time),
+      asc(poll_options.sort_order),
+    )
     .all()
 
   return { ...newPoll, options, votes: [] }
+}
+
+export async function addPollOptions(
+  db: Database,
+  pollId: number,
+  input: AddPollOptionsInput,
+) {
+  await findPollOrThrow(db, pollId)
+
+  const maxRow = await db
+    .select({
+      value: sql<number>`COALESCE(MAX(${poll_options.sort_order}), -1)`,
+    })
+    .from(poll_options)
+    .where(eq(poll_options.poll_id, pollId))
+    .get()
+  let nextOrder = (maxRow?.value ?? -1) + 1
+
+  for (const opt of input.options) {
+    await db.run(
+      sql`INSERT INTO "poll_options" ("poll_id", "label", "date", "time", "sort_order")
+          VALUES (${pollId}, ${opt.label}, ${opt.date}, ${opt.time ?? null}, ${nextOrder})`,
+    )
+    nextOrder += 1
+  }
+
+  return findPollWithDetails(db, pollId)
 }
 
 export async function upsertVotes(
@@ -121,12 +160,24 @@ export async function upsertVotes(
   voterName: string,
   responses: Array<{
     option_id: number
-    response: 'yes' | 'no' | 'maybe'
+    response: 'yes' | 'no' | 'maybe' | null
     comment?: string
   }>,
 ) {
   const now = nowUtc()
   for (const r of responses) {
+    if (r.response === null) {
+      await db
+        .delete(votes)
+        .where(
+          and(
+            eq(votes.poll_id, pollId),
+            eq(votes.voter_name, voterName),
+            eq(votes.option_id, r.option_id),
+          ),
+        )
+      continue
+    }
     await db
       .insert(votes)
       .values({
