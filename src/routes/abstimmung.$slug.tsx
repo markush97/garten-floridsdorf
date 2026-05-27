@@ -1,3 +1,5 @@
+import { ArrowLeft01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import Footer from '~/components/landing/Footer'
 import PollView from '~/components/poll/PollView'
@@ -29,6 +31,18 @@ function PollPage() {
         <span className="text-sm font-medium text-forest-700">
           Gartentermin-Abstimmung
         </span>
+        <Link
+          className="ml-auto inline-flex min-h-11 items-center gap-2 rounded-full bg-white/75 px-4 py-2 text-sm font-medium text-forest-900 shadow-[0_8px_20px_rgba(31,61,43,0.08)] ring-1 ring-inset ring-white/40 backdrop-blur transition hover:bg-white focus-visible:outline-2 focus-visible:outline-forest-700"
+          to="/"
+        >
+          <HugeiconsIcon
+            aria-hidden="true"
+            icon={ArrowLeft01Icon}
+            size={16}
+            strokeWidth={2}
+          />
+          <span>Zur Startseite</span>
+        </Link>
       </header>
 
       <main className="mx-auto w-full max-w-[1180px] px-3 pb-20 sm:px-6 lg:px-8">
