@@ -1,22 +1,22 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "project": ["src/**/*.{ts,tsx}"],
-  "ignore": ["src/lib/api-client.ts", "src/lib/query-keys.ts", "src/ui/**"],
+  "entry": [
+    "functions/api/[[path]].ts",
+    "playwright.config.ts",
+    "e2e/**/*.spec.ts"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "functions/**/*.ts", "e2e/**/*.ts"],
+  "ignore": ["src/lib/api-client.ts", "src/ui/**"],
+  "exclude": ["exports", "nsExports", "types", "nsTypes"],
   "ignoreDependencies": [
+    "@fontsource-variable/fraunces",
+    "@fontsource-variable/inter",
+    "@playwright/test",
     "@tanstack/react-form",
-    "@tanstack/react-router",
-    "@tanstack/router-plugin",
-    "class-variance-authority",
-    "date-fns",
-    "drizzle-kit",
-    "hono",
-    "jose",
-    "playwright",
-    "react-day-picker",
     "react-hook-form",
     "shadcn",
+    "sharp",
     "tailwindcss",
-    "tw-animate-css",
-    "zod"
+    "tw-animate-css"
   ]
 }

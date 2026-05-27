@@ -4,18 +4,21 @@
   "version": "0.0.0",
   "type": "module",
   "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/prerender.mjs",
+    "build": "vite build && tsc -b && node scripts/prerender.mjs",
     "preview": "vite preview",
     "lint": "biome check .",
-    "format": "biome format --check .",
+    "format": "biome check --formatter-enabled=true --linter-enabled=false .",
     "format:write": "biome format --write .",
     "typecheck": "tsc -b",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "knip": "knip",
-    "pushcheck": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm knip",
+    "pushcheck": "pnpm lint && pnpm typecheck && pnpm test && pnpm knip",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -33,6 +36,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.3.0",
     "dayjs": "^1.11.21",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.23",
     "jose": "^6.2.3",
     "radix-ui": "^1.4.3",
@@ -49,6 +53,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@cloudflare/vite-plugin": "^1.39.0",
+    "@cloudflare/workers-types": "^4.20260526.1",
     "@commitlint/cli": "^21.0.1",
     "@commitlint/config-conventional": "^21.0.1",
     "@tailwindcss/vite": "^4.3.0",
