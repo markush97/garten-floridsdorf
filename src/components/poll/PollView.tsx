@@ -17,8 +17,9 @@ const RESPONSE_CLASSES = {
   maybe: 'bg-wood-600/15 text-wood-600 ring-1 ring-inset ring-wood-600/30',
 } as const
 
-function formatDate(iso: string) {
-  return dayjs(iso).tz(DEFAULT_TIMEZONE).format('ddd, D. MMM')
+function formatDate(iso: string, time: string | null) {
+  const base = dayjs(iso).tz(DEFAULT_TIMEZONE).format('ddd, D. MMM')
+  return time ? `${base}, ${time} Uhr` : base
 }
 
 function VoteCell({ vote }: { vote: Vote | undefined }) {
@@ -123,7 +124,7 @@ export default function PollView({ poll }: Props) {
                             isFinal && 'text-leaf-500',
                           )}
                         >
-                          {formatDate(opt.date)}
+                          {formatDate(opt.date, opt.time)}
                         </p>
                         {opt.label && (
                           <p className="text-xs text-forest-700/60">

@@ -22,6 +22,7 @@ export const poll_options = sqliteTable('poll_options', {
     .references(() => polls.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   date: text('date').notNull(),
+  time: text('time'),
   sort_order: integer('sort_order').notNull().default(0),
 })
 

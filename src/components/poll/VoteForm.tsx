@@ -37,8 +37,9 @@ const RESPONSE_OPTIONS: Array<{
   },
 ]
 
-function formatDate(iso: string) {
-  return dayjs(iso).tz(DEFAULT_TIMEZONE).format('dddd, D. MMMM')
+function formatDate(iso: string, time: string | null) {
+  const base = dayjs(iso).tz(DEFAULT_TIMEZONE).format('dddd, D. MMMM')
+  return time ? `${base}, ${time} Uhr` : base
 }
 
 export default function VoteForm({ poll }: Props) {
@@ -120,7 +121,7 @@ export default function VoteForm({ poll }: Props) {
               key={opt.id}
             >
               <p className="mb-3 font-medium text-forest-900">
-                {formatDate(opt.date)}
+                {formatDate(opt.date, opt.time)}
               </p>
               {opt.label && (
                 <p className="mb-3 text-sm text-forest-700/70">{opt.label}</p>
@@ -144,7 +145,7 @@ export default function VoteForm({ poll }: Props) {
               </div>
               <div className="mt-3">
                 <Input
-                  aria-label={`Kommentar zu ${formatDate(opt.date)}`}
+                  aria-label={`Kommentar zu ${formatDate(opt.date, opt.time)}`}
                   className="text-sm"
                   maxLength={500}
                   onChange={(e) =>

@@ -1,10 +1,16 @@
 import { z } from 'zod'
 
+// Time of day in 24h HH:mm format (e.g. "14:30").
+export const timeOfDaySchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Ungültige Uhrzeit (HH:mm)')
+
 export const pollOptionSchema = z.object({
   id: z.number(),
   poll_id: z.number(),
   label: z.string(),
   date: z.string(),
+  time: z.string().nullable(),
   sort_order: z.number(),
 })
 
@@ -39,6 +45,7 @@ export const createPollInputSchema = z.object({
       z.object({
         label: z.string().min(1).max(200),
         date: z.string().min(1),
+        time: timeOfDaySchema.optional(),
       }),
     )
     .min(1)

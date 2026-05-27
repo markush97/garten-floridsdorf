@@ -77,6 +77,7 @@ export async function createPollWithOptions(
       poll_id: newPoll.id,
       label: opt.label,
       date: opt.date,
+      time: opt.time ?? null,
       sort_order: i,
     }))
     await tx.insert(poll_options).values(optionValues)

@@ -13,7 +13,12 @@ import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { Separator } from '~/ui/separator'
 
-type OptionDraft = { uid: number; label: string; date: Date | undefined }
+type OptionDraft = {
+  uid: number
+  label: string
+  date: Date | undefined
+  time: string
+}
 
 type Props = { pollId: string }
 
@@ -26,8 +31,8 @@ export default function PollEditor({ pollId }: Props) {
   const [description, setDescription] = useState('')
   const uidCounter = useRef(2)
   const [options, setOptions] = useState<OptionDraft[]>([
-    { uid: 1, label: '', date: undefined },
-    { uid: 2, label: '', date: undefined },
+    { uid: 1, label: '', date: undefined, time: '' },
+    { uid: 2, label: '', date: undefined, time: '' },
   ])
 
   const { mutate: createPoll, isPending: isCreating } = useCreatePoll()
@@ -35,7 +40,10 @@ export default function PollEditor({ pollId }: Props) {
   function addOption() {
     uidCounter.current += 1
     const uid = uidCounter.current
-    setOptions((prev) => [...prev, { uid, label: '', date: undefined }])
+    setOptions((prev) => [
+      ...prev,
+      { uid, label: '', date: undefined, time: '' },
+    ])
   }
 
   function removeOption(idx: number) {
@@ -67,6 +75,7 @@ export default function PollEditor({ pollId }: Props) {
           label:
             o.label.trim() || dayjs(o.date).tz(DEFAULT_TIMEZONE).format('dddd'),
           date: dayjs(o.date).format('YYYY-MM-DD'),
+          time: o.time.trim() || undefined,
         })),
       },
       {
@@ -122,6 +131,17 @@ export default function PollEditor({ pollId }: Props) {
                   <DatePicker
                     onChange={(date) => updateOption(idx, { date })}
                     value={opt.date}
+                  />
+                </div>
+                <div className="space-y-1.5 sm:w-32">
+                  <Label htmlFor={`opt-time-${idx}`}>Uhrzeit (optional)</Label>
+                  <Input
+                    id={`opt-time-${idx}`}
+                    onChange={(e) =>
+                      updateOption(idx, { time: e.target.value })
+                    }
+                    type="time"
+                    value={opt.time}
                   />
                 </div>
                 <div className="flex-1 space-y-1.5">
