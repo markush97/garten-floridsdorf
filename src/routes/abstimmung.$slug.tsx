@@ -77,7 +77,9 @@ function PollPage() {
         )}
       </main>
 
-      <Footer />
+      <div className="mx-auto w-full max-w-[1180px] px-3 pb-6 sm:px-6 sm:pb-8 lg:px-8">
+        <Footer />
+      </div>
     </div>
   )
 }
