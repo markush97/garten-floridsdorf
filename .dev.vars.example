@@ -1,0 +1,5 @@
+# Local-only secrets for `pnpm dev`. Picked up automatically by
+# @cloudflare/vite-plugin and wrangler. Copy this file to `.dev.vars`
+# and adjust the values. Do NOT commit `.dev.vars`.
+ADMIN_PASSWORD = "changeme"
+JWT_SECRET = "local-dev-secret-please-change"

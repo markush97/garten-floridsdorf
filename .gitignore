@@ -29,3 +29,6 @@ src/routeTree.gen.ts
 *.njsproj
 *.sln
 *.sw?
+
+# Local Cloudflare dev secrets
+.dev.vars
