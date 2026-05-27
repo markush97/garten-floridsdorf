@@ -83,7 +83,9 @@ export default function PollEditor({ pollId }: Props) {
           label:
             o.label.trim() || dayjs(o.date).tz(DEFAULT_TIMEZONE).format('dddd'),
           date: dayjs(o.date).format('YYYY-MM-DD'),
-          time: o.time.trim() || undefined,
+          time: /^([01]\d|2[0-3]):[0-5]\d$/.test(o.time.trim())
+            ? o.time.trim()
+            : undefined,
         })),
       },
       {
