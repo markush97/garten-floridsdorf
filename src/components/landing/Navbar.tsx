@@ -13,7 +13,7 @@ function Navbar() {
         <a className="group flex items-center gap-3" href="#top">
           <img
             alt="Icon von SV Beet & Bewegung"
-            className="h-10 w-10 rounded-full bg-cream-50 p-1 transition duration-500 group-hover:rotate-[8deg] group-hover:scale-105 sm:h-12 sm:w-12"
+            className="h-10 w-10 mix-blend-multiply transition duration-500 group-hover:rotate-[8deg] group-hover:scale-105 sm:h-12 sm:w-12"
             src="/brand/icon.png"
           />
           <div className="min-w-0">

@@ -301,7 +301,7 @@ function EditorShell({
         <Link to="/">
           <img
             alt="SV Beet & Bewegung"
-            className="h-9 w-9"
+            className="h-9 w-9 mix-blend-multiply"
             src="/brand/icon.png"
           />
         </Link>

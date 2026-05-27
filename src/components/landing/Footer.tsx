@@ -8,7 +8,7 @@ function Footer() {
         <div className="flex items-center gap-3 sm:gap-4">
           <img
             alt="Logo von SV Beet & Bewegung"
-            className="h-12 w-auto rounded-full bg-cream-50/60 p-1 transition hover:rotate-[6deg] sm:h-14"
+            className="h-12 w-auto mix-blend-multiply transition hover:rotate-[6deg] sm:h-14"
             src="/brand/logo.png"
           />
           <div>

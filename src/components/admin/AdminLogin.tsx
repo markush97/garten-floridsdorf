@@ -32,7 +32,7 @@ export default function AdminLogin() {
         <div className="space-y-1 text-center">
           <img
             alt="SV Beet & Bewegung"
-            className="mx-auto h-14 w-14"
+            className="mx-auto h-14 w-14 mix-blend-multiply"
             src="/brand/icon.png"
           />
           <h1 className="text-2xl text-forest-900">Admin-Bereich</h1>

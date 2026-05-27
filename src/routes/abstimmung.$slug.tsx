@@ -22,7 +22,7 @@ function PollPage() {
         >
           <img
             alt="SV Beet & Bewegung"
-            className="h-9 w-9 rounded-full bg-cream-50 p-1"
+            className="h-9 w-9 mix-blend-multiply"
             src="/brand/icon.png"
           />
         </Link>
