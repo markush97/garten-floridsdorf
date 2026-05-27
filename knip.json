@@ -1,11 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "entry": [
-    "functions/api/[[path]].ts",
-    "playwright.config.ts",
-    "e2e/**/*.spec.ts"
+  "entry": ["worker/index.ts", "playwright.config.ts", "e2e/**/*.spec.ts"],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "worker/**/*.ts",
+    "functions/**/*.ts",
+    "e2e/**/*.ts"
   ],
-  "project": ["src/**/*.{ts,tsx}", "functions/**/*.ts", "e2e/**/*.ts"],
   "ignore": ["src/lib/api-client.ts", "src/ui/**"],
   "exclude": ["exports", "nsExports", "types", "nsTypes"],
   "ignoreDependencies": [

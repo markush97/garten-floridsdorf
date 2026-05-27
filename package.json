@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "vite build && tsc -b && node scripts/prerender.mjs",
     "build:cf": "pnpm db:migrate:remote && pnpm build",
+    "deploy": "pnpm build:cf && wrangler deploy",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",

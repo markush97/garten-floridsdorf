@@ -1,19 +1,18 @@
 import { Hono } from 'hono'
-import { handle } from 'hono/cloudflare-pages'
 import {
   requireAdmin,
   setAdminCookie,
   signAdminToken,
   verifyPassword,
-} from '../_lib/auth'
-import { createDb } from '../_lib/db'
-import { AppError, makeError } from '../_lib/errors'
+} from '../functions/_lib/auth'
+import { createDb } from '../functions/_lib/db'
+import { AppError, makeError } from '../functions/_lib/errors'
 import {
   adminLoginInputSchema,
   createPollInputSchema,
   finalizePollInputSchema,
   submitVotesInputSchema,
-} from '../contracts/poll'
+} from '../functions/contracts/poll'
 import {
   createPollWithOptions,
   deletePoll,
@@ -22,7 +21,7 @@ import {
   findPollWithDetails,
   listAllPolls,
   upsertVotes,
-} from '../db/queries/polls'
+} from '../functions/db/queries/polls'
 
 type AppEnv = {
   Bindings: {
@@ -143,4 +142,4 @@ app.delete('/admin/polls/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-export const onRequest = handle(app)
+export default app

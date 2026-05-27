@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { chromium } from 'playwright'
@@ -7,65 +7,6 @@ import { chromium } from 'playwright'
 const distDir = resolve('dist')
 const indexPath = join(distDir, 'index.html')
 const port = 4567
-
-// The @cloudflare/vite-plugin emits several Workers-only fields into dist/wrangler.json
-// that are invalid for Pages projects. Strip them before Cloudflare Pages reads the file.
-const wranglerJsonPath = join(distDir, 'wrangler.json')
-
-// Fields Pages rejects outright (hard errors):
-const PAGES_UNSUPPORTED = new Set([
-  'assets',
-  'triggers',
-  // dev sub-fields that cause "Unexpected fields found in dev":
-])
-// Noisy top-level fields that cause warnings from the vite plugin's full schema output:
-const PLUGIN_NOISE = new Set([
-  'definedEnvironments',
-  'ai_search_namespaces',
-  'ai_search',
-  'secrets_store_secrets',
-  'artifacts',
-  'unsafe_hello_world',
-  'flagship',
-  'worker_loaders',
-  'ratelimits',
-  'vpc_services',
-  'vpc_networks',
-  'python_modules',
-])
-
-try {
-  const raw = await readFile(wranglerJsonPath, 'utf8')
-  const cfg = JSON.parse(raw)
-  let patched = false
-
-  for (const key of [...PAGES_UNSUPPORTED, ...PLUGIN_NOISE]) {
-    if (key in cfg) {
-      delete cfg[key]
-      patched = true
-    }
-  }
-
-  // Strip dev-level sub-fields that are unknown to Pages
-  if (cfg.dev && typeof cfg.dev === 'object') {
-    for (const k of ['enable_containers', 'generate_types']) {
-      if (k in cfg.dev) {
-        delete cfg.dev[k]
-        patched = true
-      }
-    }
-    if (Object.keys(cfg.dev).length === 0) delete cfg.dev
-  }
-
-  if (patched) {
-    await writeFile(wranglerJsonPath, JSON.stringify(cfg, null, 2), 'utf8')
-    console.log(
-      '✓ patched dist/wrangler.json (removed Pages-incompatible fields)',
-    )
-  }
-} catch {
-  // wrangler.json may not exist in all build modes; skip silently
-}
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
