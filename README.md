@@ -12,10 +12,19 @@ Family calendar, date polling and doodle scheduling for two families and their s
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:5174
+pnpm db:migrate:local  # apply Drizzle migrations to the local D1 SQLite
+pnpm dev               # http://localhost:5174 (Vite + Workers runtime + D1)
 ```
 
 `pnpm dev` uses [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/pages/framework-guides/deploy-a-vite-app/), which embeds the real Cloudflare Workers runtime directly inside the Vite dev server. The Hono API (Pages Functions) and the React frontend share the same port with full HMR and live D1 bindings — no separate wrangler process required.
+
+For schema changes:
+
+```bash
+pnpm db:generate       # emit a new migration into drizzle/
+pnpm db:migrate:local  # apply it to the local DB
+pnpm db:migrate:remote # apply it to the production D1
+```
 
 ## Quality
 
