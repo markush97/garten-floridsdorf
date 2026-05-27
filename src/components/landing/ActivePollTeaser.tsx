@@ -53,8 +53,11 @@ function ActivePollTeaser() {
                 {poll.title}
               </h2>
               {poll.description && (
-                <p className="max-w-[60ch] text-base text-cream-50/85 sm:text-lg">
-                  {poll.description}
+                <p className="line-clamp-2 max-w-[60ch] text-base text-cream-50/85 sm:text-lg">
+                  {poll.description
+                    .replace(/<[^>]*>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim()}
                 </p>
               )}
               <Link
