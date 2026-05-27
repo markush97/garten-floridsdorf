@@ -41,6 +41,33 @@ export function RichTextEditor({
       {/* Toolbar */}
       <div className="flex flex-wrap gap-0.5 border-b border-forest-900/10 px-2 py-1.5">
         <button
+          aria-label="Überschrift 2"
+          className={cn(
+            TOOLBAR_BTN,
+            editor.isActive('heading', { level: 2 }) && TOOLBAR_BTN_ACTIVE,
+          )}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 2 }).run()
+          }
+          type="button"
+        >
+          H1
+        </button>
+        <button
+          aria-label="Überschrift 3"
+          className={cn(
+            TOOLBAR_BTN,
+            editor.isActive('heading', { level: 3 }) && TOOLBAR_BTN_ACTIVE,
+          )}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 3 }).run()
+          }
+          type="button"
+        >
+          H2
+        </button>
+        <span className="mx-1 w-px self-stretch bg-forest-900/10" />
+        <button
           aria-label="Fett"
           className={cn(
             TOOLBAR_BTN,
