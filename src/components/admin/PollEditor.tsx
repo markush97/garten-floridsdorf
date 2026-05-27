@@ -88,7 +88,7 @@ export default function PollEditor({ pollId }: Props) {
       {
         onSuccess: (poll) => {
           toast.success('Umfrage erstellt und aktiviert.')
-          void navigate({ to: '/poll/$id', params: { id: String(poll.id) } })
+          void navigate({ to: '/poll/$slug', params: { slug: poll.slug } })
         },
         onError: () => toast.error('Fehler beim Erstellen der Umfrage.'),
       },
@@ -245,11 +245,11 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
             <span className="text-sm text-forest-700/70">Abstimmungslink</span>
             <a
               className="text-sm text-forest-700 underline"
-              href={`/poll/${poll.id}`}
+              href={`/poll/${poll.slug}`}
               rel="noreferrer"
               target="_blank"
             >
-              /poll/{poll.id}
+              /poll/{poll.slug}
             </a>
           </div>
         </div>

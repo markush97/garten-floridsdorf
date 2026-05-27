@@ -4,13 +4,13 @@ import PollView from '~/components/poll/PollView'
 import VoteForm from '~/components/poll/VoteForm'
 import { usePoll } from '~/services/poll.service'
 
-export const Route = createFileRoute('/poll/$id')({
+export const Route = createFileRoute('/poll/$slug')({
   component: PollPage,
 })
 
 function PollPage() {
-  const { id } = Route.useParams()
-  const { data: poll, isPending, isError } = usePoll(id)
+  const { slug } = Route.useParams()
+  const { data: poll, isPending, isError } = usePoll(slug)
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">

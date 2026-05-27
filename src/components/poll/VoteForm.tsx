@@ -49,7 +49,7 @@ export default function VoteForm({ poll }: Props) {
   const [responses, setResponses] = useState<Record<number, ResponseValue>>({})
   const [comments, setComments] = useState<Record<number, string>>({})
 
-  const { mutate: submitVotes, isPending } = useSubmitVotes(String(poll.id))
+  const { mutate: submitVotes, isPending } = useSubmitVotes(poll.slug)
 
   function handleNameChange(val: string) {
     setVoterName(val)

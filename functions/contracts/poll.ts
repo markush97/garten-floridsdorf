@@ -27,6 +27,7 @@ export const voteSchema = z.object({
 
 export const pollSchema = z.object({
   id: z.number(),
+  slug: z.string(),
   title: z.string(),
   description: z.string().nullable(),
   is_active: z.boolean(),

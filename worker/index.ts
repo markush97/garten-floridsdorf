@@ -18,7 +18,7 @@ import {
   deletePoll,
   finalizePoll,
   findActivePollWithDetails,
-  findPollWithDetails,
+  findPollWithDetailsBySlug,
   listAllPolls,
   upsertVotes,
 } from '../functions/db/queries/polls'
@@ -55,30 +55,24 @@ app.get('/polls/active', async (c) => {
   return c.json(poll)
 })
 
-app.get('/polls/:id', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (!Number.isInteger(id) || id <= 0) {
-    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
-  }
+app.get('/polls/:slug', async (c) => {
+  const slug = c.req.param('slug')
   const db = createDb(c.env.DB)
-  const poll = await findPollWithDetails(db, id)
+  const poll = await findPollWithDetailsBySlug(db, slug)
   return c.json(poll)
 })
 
-app.post('/polls/:id/votes', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (!Number.isInteger(id) || id <= 0) {
-    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
-  }
+app.post('/polls/:slug/votes', async (c) => {
+  const slug = c.req.param('slug')
   const body = await c.req.json()
   const parsed = submitVotesInputSchema.safeParse(body)
   if (!parsed.success) {
     return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
   }
   const db = createDb(c.env.DB)
-  await upsertVotes(db, id, parsed.data.voter_name, parsed.data.responses)
-  const poll = await findPollWithDetails(db, id)
-  return c.json(poll)
+  const poll = await findPollWithDetailsBySlug(db, slug)
+  await upsertVotes(db, poll.id, parsed.data.voter_name, parsed.data.responses)
+  return c.json(await findPollWithDetailsBySlug(db, slug))
 })
 
 // ── Admin endpoints ─────────────────────────────────────────────────────────

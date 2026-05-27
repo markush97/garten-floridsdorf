@@ -9,6 +9,7 @@ import type {
 
 type AdminPoll = {
   id: number
+  slug: string
   title: string
   description: string | null
   is_active: boolean

@@ -14,21 +14,24 @@ export function useActivePoll() {
   })
 }
 
-export function usePoll(id: string) {
+export function usePoll(slug: string) {
   return useQuery({
-    queryKey: queryKeys.polls.detail(id),
-    queryFn: () => apiClient<Poll>(`/polls/${id}`),
+    queryKey: queryKeys.polls.detail(slug),
+    queryFn: () => apiClient<Poll>(`/polls/${slug}`),
   })
 }
 
-export function useSubmitVotes(pollId: string) {
+export function useSubmitVotes(pollSlug: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: SubmitVotesInput) =>
-      apiClient<Poll>(`/polls/${pollId}/votes`, { method: 'POST', body: data }),
+      apiClient<Poll>(`/polls/${pollSlug}/votes`, {
+        method: 'POST',
+        body: data,
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.polls.detail(pollId),
+        queryKey: queryKeys.polls.detail(pollSlug),
       })
     },
   })

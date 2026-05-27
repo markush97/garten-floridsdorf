@@ -7,6 +7,7 @@ import {
 
 export const polls = sqliteTable('polls', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  slug: text('slug').notNull().unique(),
   title: text('title').notNull(),
   description: text('description'),
   is_active: integer('is_active', { mode: 'boolean' }).notNull().default(false),

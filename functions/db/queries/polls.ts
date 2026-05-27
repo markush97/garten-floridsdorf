@@ -2,6 +2,7 @@ import { asc, desc, eq } from 'drizzle-orm'
 import { nowUtc } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
+import { generateSlug } from '../../_lib/slug'
 import type { CreatePollInput, FinalizePollInput } from '../../contracts/poll'
 import { poll_options, polls, votes } from '../schema'
 
@@ -11,6 +12,19 @@ export async function findPollOrThrow(db: Database, id: number) {
     throw new AppError('NOT_FOUND', 'Umfrage nicht gefunden', 404)
   }
   return poll
+}
+
+export async function findPollBySlugOrThrow(db: Database, slug: string) {
+  const poll = await db.select().from(polls).where(eq(polls.slug, slug)).get()
+  if (!poll) {
+    throw new AppError('NOT_FOUND', 'Umfrage nicht gefunden', 404)
+  }
+  return poll
+}
+
+export async function findPollWithDetailsBySlug(db: Database, slug: string) {
+  const poll = await findPollBySlugOrThrow(db, slug)
+  return findPollWithDetails(db, poll.id)
 }
 
 export async function findPollWithDetails(db: Database, id: number) {
@@ -56,6 +70,7 @@ export async function createPollWithOptions(
   const inserted = await db
     .insert(polls)
     .values({
+      slug: generateSlug(input.title),
       title: input.title,
       description: input.description ?? null,
       is_active: true,

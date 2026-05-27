@@ -15,6 +15,13 @@
       "when": 1779872533930,
       "tag": "0001_tearful_mystique",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779876639694,
+      "tag": "0002_cheerful_scream",
+      "breakpoints": true
     }
   ]
 }
