@@ -47,50 +47,48 @@ export async function createPollWithOptions(
   db: Database,
   input: CreatePollInput,
 ) {
-  return db.transaction(async (tx) => {
-    await tx
-      .update(polls)
-      .set({ is_active: false })
-      .where(eq(polls.is_active, true))
+  await db
+    .update(polls)
+    .set({ is_active: false })
+    .where(eq(polls.is_active, true))
 
-    const now = nowUtc()
-    const inserted = await tx
-      .insert(polls)
-      .values({
-        title: input.title,
-        description: input.description ?? null,
-        is_active: true,
-        created_at: now,
-      })
-      .returning()
+  const now = nowUtc()
+  const inserted = await db
+    .insert(polls)
+    .values({
+      title: input.title,
+      description: input.description ?? null,
+      is_active: true,
+      created_at: now,
+    })
+    .returning()
 
-    const newPoll = inserted[0]
-    if (!newPoll) {
-      throw new AppError(
-        'INTERNAL_ERROR',
-        'Fehler beim Erstellen der Umfrage',
-        500,
-      )
-    }
+  const newPoll = inserted[0]
+  if (!newPoll) {
+    throw new AppError(
+      'INTERNAL_ERROR',
+      'Fehler beim Erstellen der Umfrage',
+      500,
+    )
+  }
 
-    const optionValues = input.options.map((opt, i) => ({
-      poll_id: newPoll.id,
-      label: opt.label,
-      date: opt.date,
-      time: opt.time ?? null,
-      sort_order: i,
-    }))
-    await tx.insert(poll_options).values(optionValues)
+  const optionValues = input.options.map((opt, i) => ({
+    poll_id: newPoll.id,
+    label: opt.label,
+    date: opt.date,
+    time: opt.time ?? null,
+    sort_order: i,
+  }))
+  await db.insert(poll_options).values(optionValues)
 
-    const options = await tx
-      .select()
-      .from(poll_options)
-      .where(eq(poll_options.poll_id, newPoll.id))
-      .orderBy(asc(poll_options.sort_order))
-      .all()
+  const options = await db
+    .select()
+    .from(poll_options)
+    .where(eq(poll_options.poll_id, newPoll.id))
+    .orderBy(asc(poll_options.sort_order))
+    .all()
 
-    return { ...newPoll, options, votes: [] }
-  })
+  return { ...newPoll, options, votes: [] }
 }
 
 export async function upsertVotes(
