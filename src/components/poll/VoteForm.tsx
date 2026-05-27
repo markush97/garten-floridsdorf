@@ -1,3 +1,5 @@
+import { AddCircleIcon, PencilIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
@@ -6,9 +8,16 @@ import { useSubmitVotes } from '~/services/poll.service'
 import { Button } from '~/ui/button'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/ui/tooltip'
 import type { Poll } from '~func/contracts/poll'
 
 type ResponseValue = 'yes' | 'no' | 'maybe'
+
+type SavedVote = {
+  voter_name: string
+  responses: Record<number, ResponseValue>
+  comments: Record<number, string>
+}
 
 type Props = { poll: Poll }
 
@@ -42,12 +51,38 @@ function formatDate(iso: string, time: string | null) {
   return time ? `${base}, ${time} Uhr` : base
 }
 
+function loadSavedVote(slug: string): SavedVote | null {
+  try {
+    const raw = localStorage.getItem(`poll_vote_${slug}`)
+    return raw ? (JSON.parse(raw) as SavedVote) : null
+  } catch {
+    return null
+  }
+}
+
 export default function VoteForm({ poll }: Props) {
   const [voterName, setVoterName] = useState(
-    () => localStorage.getItem('voter_name') ?? '',
+    () =>
+      loadSavedVote(poll.slug)?.voter_name ??
+      localStorage.getItem('voter_name') ??
+      '',
   )
-  const [responses, setResponses] = useState<Record<number, ResponseValue>>({})
-  const [comments, setComments] = useState<Record<number, string>>({})
+  const [responses, setResponses] = useState<Record<number, ResponseValue>>(
+    () =>
+      (loadSavedVote(poll.slug)?.responses ?? {}) as Record<
+        number,
+        ResponseValue
+      >,
+  )
+  const [comments, setComments] = useState<Record<number, string>>(
+    () => loadSavedVote(poll.slug)?.comments ?? {},
+  )
+  const [isNameLocked, setIsNameLocked] = useState(() =>
+    Boolean(loadSavedVote(poll.slug)?.voter_name),
+  )
+  const [hasVotedBefore, setHasVotedBefore] = useState(() =>
+    Boolean(loadSavedVote(poll.slug)?.voter_name),
+  )
 
   const { mutate: submitVotes, isPending } = useSubmitVotes(poll.slug)
 
@@ -64,6 +99,13 @@ export default function VoteForm({ poll }: Props) {
           ? (undefined as unknown as ResponseValue)
           : value,
     }))
+  }
+
+  function handleAddVoter() {
+    setVoterName('')
+    setResponses({})
+    setComments({})
+    setIsNameLocked(false)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -88,7 +130,17 @@ export default function VoteForm({ poll }: Props) {
         })),
       },
       {
-        onSuccess: () => toast.success('Deine Antworten wurden gespeichert.'),
+        onSuccess: () => {
+          const saveData: SavedVote = { voter_name: name, responses, comments }
+          localStorage.setItem(
+            `poll_vote_${poll.slug}`,
+            JSON.stringify(saveData),
+          )
+          localStorage.setItem('voter_name', name)
+          setIsNameLocked(true)
+          setHasVotedBefore(true)
+          toast.success('Deine Antworten wurden gespeichert.')
+        },
         onError: () =>
           toast.error('Fehler beim Speichern. Bitte versuche es erneut.'),
       },
@@ -103,15 +155,29 @@ export default function VoteForm({ poll }: Props) {
       <form className="space-y-6" onSubmit={handleSubmit}>
         <div className="max-w-xs space-y-1.5">
           <Label htmlFor="voter-name">Dein Name</Label>
-          <Input
-            id="voter-name"
-            maxLength={100}
-            onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="z. B. Maria"
-            required
-            type="text"
-            value={voterName}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              className={cn(isNameLocked && 'cursor-default bg-forest-900/5')}
+              id="voter-name"
+              maxLength={100}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="z. B. Maria"
+              readOnly={isNameLocked}
+              required
+              type="text"
+              value={voterName}
+            />
+            {isNameLocked && (
+              <button
+                aria-label="Namen bearbeiten"
+                className="shrink-0 rounded-lg p-1.5 text-forest-700/60 transition-colors hover:bg-forest-900/8 hover:text-forest-900"
+                onClick={() => setIsNameLocked(false)}
+                type="button"
+              >
+                <HugeiconsIcon icon={PencilIcon} size={16} strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -163,13 +229,38 @@ export default function VoteForm({ poll }: Props) {
           ))}
         </div>
 
-        <Button
-          className="min-h-12 w-full sm:w-auto"
-          disabled={isPending}
-          type="submit"
-        >
-          {isPending ? 'Wird gespeichert …' : 'Antworten speichern'}
-        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button
+            className="min-h-12 w-full sm:w-auto"
+            disabled={isPending}
+            type="submit"
+          >
+            {isPending ? 'Wird gespeichert …' : 'Antworten speichern'}
+          </Button>
+
+          {hasVotedBefore && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Für eine weitere Person abstimmen"
+                  className="min-h-12 w-full sm:w-auto"
+                  onClick={handleAddVoter}
+                  type="button"
+                  variant="outline"
+                >
+                  <HugeiconsIcon
+                    icon={AddCircleIcon}
+                    size={20}
+                    strokeWidth={1.5}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                Für eine weitere Person abstimmen
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </form>
     </section>
   )
