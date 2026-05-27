@@ -173,6 +173,7 @@ describe('createPollWithOptions', () => {
       update: vi.fn().mockReturnValue({ set: updateSet }),
       insert: vi.fn().mockReturnValue({ values: insertValues }),
       select: vi.fn().mockReturnValue({ from: selectFrom }),
+      run: vi.fn().mockResolvedValue({}),
     } as unknown as import('../_lib/db').Database
 
     const { createPollWithOptions } = await import('../db/queries/polls')
@@ -182,6 +183,9 @@ describe('createPollWithOptions', () => {
     })
 
     expect(mockDb.update).toHaveBeenCalledOnce()
-    expect(mockDb.insert).toHaveBeenCalledTimes(2)
+    // insert called once for the poll row; options use db.run() to avoid
+    // Drizzle emitting null for the AUTOINCREMENT id column on D1
+    expect(mockDb.insert).toHaveBeenCalledOnce()
+    expect(mockDb.run).toHaveBeenCalledOnce()
   })
 })

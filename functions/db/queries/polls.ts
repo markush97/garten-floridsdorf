@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm'
+import { asc, desc, eq, sql } from 'drizzle-orm'
 import { nowUtc } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
@@ -95,7 +95,12 @@ export async function createPollWithOptions(
     sort_order: i,
   }))
   for (const opt of optionValues) {
-    await db.insert(poll_options).values(opt).returning()
+    // D1 rejects Drizzle's generated `("id", ...) VALUES (null, ...)` for
+    // AUTOINCREMENT columns — use raw SQL to omit the id column entirely.
+    await db.run(
+      sql`INSERT INTO poll_options (poll_id, label, date, time, sort_order)
+          VALUES (${opt.poll_id}, ${opt.label}, ${opt.date}, ${opt.time}, ${opt.sort_order})`,
+    )
   }
 
   const options = await db
