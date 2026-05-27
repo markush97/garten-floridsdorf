@@ -347,11 +347,73 @@ button:focus-visible {
   animation-delay: var(--leaf-delay, 0ms);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+/* ── Rich-text prose (Tiptap output) ──────────────────────────────────────── */
 
+.prose-content {
+  color: inherit;
+  line-height: 1.65;
+}
+.prose-content p {
+  margin: 0.5em 0;
+}
+.prose-content p:first-child {
+  margin-top: 0;
+}
+.prose-content p:last-child {
+  margin-bottom: 0;
+}
+.prose-content strong {
+  font-weight: 600;
+}
+.prose-content em {
+  font-style: italic;
+}
+.prose-content ul,
+.prose-content ol {
+  margin: 0.5em 0 0.5em 1.5em;
+  padding: 0;
+}
+.prose-content ul {
+  list-style: disc;
+}
+.prose-content ol {
+  list-style: decimal;
+}
+.prose-content li {
+  margin: 0.2em 0;
+}
+.prose-content h1,
+.prose-content h2,
+.prose-content h3 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.75em 0 0.25em;
+}
+.prose-content h1 {
+  font-size: 1.25em;
+}
+.prose-content h2 {
+  font-size: 1.125em;
+}
+.prose-content h3 {
+  font-size: 1em;
+}
+
+/* Tiptap editor surface */
+.tiptap-editor .ProseMirror {
+  outline: none;
+  min-height: 6rem;
+  padding: 0.625rem 0.75rem;
+}
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: oklch(0.55 0.03 147);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
   a,
   button {
     transition: none;

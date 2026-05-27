@@ -40,7 +40,7 @@ export const pollSchema = z.object({
 
 export const createPollInputSchema = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(10000).optional(),
   options: z
     .array(
       z.object({

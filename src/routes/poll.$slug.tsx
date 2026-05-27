@@ -50,9 +50,11 @@ function PollPage() {
             <div>
               <h1 className="text-3xl sm:text-4xl">{poll.title}</h1>
               {poll.description && (
-                <p className="mt-2 text-base text-forest-700/80 sm:text-lg">
-                  {poll.description}
-                </p>
+                <div
+                  className="prose-content mt-2 text-base text-forest-700/80 sm:text-lg"
+                  // biome-ignore lint/security/noDangerouslySetInnerHtml: admin-generated WYSIWYG HTML
+                  dangerouslySetInnerHTML={{ __html: poll.description }}
+                />
               )}
               {poll.final_option_id && (
                 <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-leaf-500/15 px-4 py-1.5 text-sm font-semibold text-leaf-500">

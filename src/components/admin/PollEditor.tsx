@@ -11,6 +11,7 @@ import { Button } from '~/ui/button'
 import { DatePicker } from '~/ui/date-picker'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
+import { RichTextEditor } from '~/ui/rich-text-editor'
 import { Separator } from '~/ui/separator'
 
 type OptionDraft = {
@@ -112,11 +113,9 @@ export default function PollEditor({ pollId }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="poll-desc">Beschreibung (optional)</Label>
-            <Input
-              id="poll-desc"
-              maxLength={1000}
-              onChange={(e) => setDescription(e.target.value)}
+            <Label>Beschreibung (optional)</Label>
+            <RichTextEditor
+              onChange={setDescription}
               placeholder="Kurze Beschreibung …"
               value={description}
             />

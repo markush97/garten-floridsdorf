@@ -17,10 +17,7 @@ const RESPONSE_CLASSES = {
   maybe: 'bg-wood-600/15 text-wood-600 ring-1 ring-inset ring-wood-600/30',
 } as const
 
-function formatDate(iso: string, time: string | null) {
-  const base = dayjs(iso).tz(DEFAULT_TIMEZONE).format('ddd, D. MMM')
-  return time ? `${base}, ${time} Uhr` : base
-}
+const STICKY_COL = 'sticky left-0 z-[1] bg-white px-4'
 
 function VoteCell({ vote }: { vote: Vote | undefined }) {
   const [open, setOpen] = useState(false)
@@ -42,7 +39,7 @@ function VoteCell({ vote }: { vote: Vote | undefined }) {
         {RESPONSE_LABELS[vote.response]}
       </button>
       {open && vote.comment && (
-        <p className="max-w-[10rem] text-center text-[0.7rem] leading-snug text-forest-700/70">
+        <p className="max-w-40 text-center text-[0.7rem] leading-snug text-forest-700/70">
           {vote.comment}
         </p>
       )}
@@ -73,84 +70,151 @@ export default function PollView({ poll }: Props) {
         )}
       </h2>
       <div className="overflow-x-auto rounded-[1.25rem] bg-white/75 ring-1 ring-inset ring-white/40 backdrop-blur shadow-[0_8px_24px_rgba(31,61,43,0.07)]">
-        <table className="w-full min-w-[32rem] border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-forest-900/8">
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-forest-700">
-                Termin
+              {/* sticky name column header */}
+              <th
+                className={cn(
+                  STICKY_COL,
+                  'py-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-forest-700',
+                )}
+              >
+                Name
               </th>
-              {voterNames.length === 0 ? (
-                <th className="px-4 py-3 text-left text-xs text-forest-700/50 font-normal">
-                  Noch keine Antworten
-                </th>
-              ) : (
-                voterNames.map((name) => (
+              {/* one column per date option */}
+              {poll.options.map((opt) => {
+                const isFinal = poll.final_option_id === opt.id
+                const d = dayjs(opt.date).tz(DEFAULT_TIMEZONE)
+                return (
                   <th
-                    className="px-3 py-3 text-center text-xs font-semibold text-forest-900"
-                    key={name}
+                    className={cn(
+                      'min-w-22 px-3 py-3 text-center text-xs font-semibold',
+                      isFinal
+                        ? 'bg-leaf-500/8 text-leaf-500'
+                        : 'text-forest-900',
+                    )}
+                    key={opt.id}
                   >
-                    {name}
+                    {isFinal && (
+                      <>
+                        <span aria-hidden="true" className="mr-0.5">
+                          ✓
+                        </span>
+                        <span className="sr-only">Gewählter Termin</span>{' '}
+                      </>
+                    )}
+                    {d.format('dd, D. MMM')}
+                    {opt.time && (
+                      <p className="font-normal text-forest-700/70">
+                        {opt.time} Uhr
+                      </p>
+                    )}
+                    {opt.label && (
+                      <p className="text-[0.65rem] font-normal text-forest-700/50">
+                        {opt.label}
+                      </p>
+                    )}
                   </th>
-                ))
-              )}
+                )
+              })}
             </tr>
           </thead>
           <tbody>
-            {poll.options.map((opt) => {
-              const isFinal = poll.final_option_id === opt.id
-              return (
-                <tr
-                  className={cn(
-                    'border-b border-forest-900/5 last:border-0',
-                    isFinal && 'bg-leaf-500/8',
-                  )}
-                  key={opt.id}
+            {voterNames.length === 0 ? (
+              <tr>
+                <td
+                  className="px-4 py-6 text-center text-forest-700/50"
+                  colSpan={poll.options.length + 1}
                 >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {isFinal && (
-                        <span
-                          aria-label="Gewählter Termin"
-                          className="text-leaf-500"
-                          role="img"
-                        >
-                          ✓
-                        </span>
-                      )}
-                      <div>
-                        <p
-                          className={cn(
-                            'font-medium',
-                            isFinal && 'text-leaf-500',
-                          )}
-                        >
-                          {formatDate(opt.date, opt.time)}
-                        </p>
-                        {opt.label && (
-                          <p className="text-xs text-forest-700/60">
-                            {opt.label}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  Noch keine Antworten
+                </td>
+              </tr>
+            ) : (
+              voterNames.map((name) => (
+                <tr
+                  className="border-b border-forest-900/5 last:border-0"
+                  key={name}
+                >
+                  <td
+                    className={cn(
+                      STICKY_COL,
+                      'py-2.5 font-medium text-forest-900',
+                    )}
+                  >
+                    {name}
                   </td>
-                  {voterNames.map((name) => {
+                  {poll.options.map((opt) => {
                     const vote = poll.votes.find(
                       (v) => v.voter_name === name && v.option_id === opt.id,
                     )
                     return (
                       <td
-                        className="px-3 py-3 text-center"
-                        key={`${opt.id}-${name}`}
+                        className={cn(
+                          'px-3 py-2.5 text-center',
+                          poll.final_option_id === opt.id && 'bg-leaf-500/8',
+                        )}
+                        key={`${name}-${opt.id}`}
                       >
                         <VoteCell vote={vote} />
                       </td>
                     )
                   })}
                 </tr>
-              )
-            })}
+              ))
+            )}
           </tbody>
+          {/* totals footer */}
+          {voterNames.length > 0 && (
+            <tfoot>
+              <tr className="border-t-2 border-forest-900/10 bg-forest-900/3">
+                <td
+                  className={cn(
+                    STICKY_COL,
+                    'bg-cream-50 py-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-forest-700',
+                  )}
+                >
+                  Verfügbar
+                </td>
+                {poll.options.map((opt) => {
+                  const optVotes = poll.votes.filter(
+                    (v) => v.option_id === opt.id,
+                  )
+                  const yesCount = optVotes.filter(
+                    (v) => v.response === 'yes',
+                  ).length
+                  const maybeCount = optVotes.filter(
+                    (v) => v.response === 'maybe',
+                  ).length
+                  const total = yesCount + maybeCount
+                  return (
+                    <td
+                      className={cn(
+                        'px-3 py-2.5 text-center',
+                        poll.final_option_id === opt.id && 'bg-leaf-500/8',
+                      )}
+                      key={opt.id}
+                    >
+                      {total === 0 ? (
+                        <span className="text-xs text-forest-700/30">–</span>
+                      ) : (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="text-sm font-bold text-leaf-500">
+                            {total}
+                          </span>
+                          {maybeCount > 0 && (
+                            <span className="text-[0.65rem] text-forest-700/50">
+                              {yesCount} sicher
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </section>
