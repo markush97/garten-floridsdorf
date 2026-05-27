@@ -49,9 +49,10 @@ export async function signAdminToken(jwtSecret: string): Promise<string> {
 }
 
 export function setAdminCookie(c: Context, token: string): void {
+  const isSecure = new URL(c.req.url).protocol === 'https:'
   setCookie(c, COOKIE_NAME, token, {
     httpOnly: true,
-    secure: true,
+    secure: isSecure,
     sameSite: 'Strict',
     maxAge: COOKIE_MAX_AGE,
     path: '/',
