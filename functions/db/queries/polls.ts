@@ -96,9 +96,11 @@ export async function createPollWithOptions(
   }))
   for (const opt of optionValues) {
     // D1 rejects Drizzle's generated `("id", ...) VALUES (null, ...)` for
-    // AUTOINCREMENT columns — use raw SQL to omit the id column entirely.
+    // AUTOINCREMENT columns on tables with FK constraints — use raw SQL to
+    // omit the id column. Quote all identifiers so D1 doesn't misparse
+    // "date" / "time" as SQL functions.
     await db.run(
-      sql`INSERT INTO poll_options (poll_id, label, date, time, sort_order)
+      sql`INSERT INTO "poll_options" ("poll_id", "label", "date", "time", "sort_order")
           VALUES (${opt.poll_id}, ${opt.label}, ${opt.date}, ${opt.time}, ${opt.sort_order})`,
     )
   }
