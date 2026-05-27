@@ -1,3 +1,4 @@
+import { createFileRoute } from '@tanstack/react-router'
 import AboutUs from '~/components/landing/AboutUs'
 import ActivePollTeaser from '~/components/landing/ActivePollTeaser'
 import Footer from '~/components/landing/Footer'
@@ -7,7 +8,11 @@ import Navbar from '~/components/landing/Navbar'
 import WavyDivider from '~/components/landing/WavyDivider'
 import WhatWeDo from '~/components/landing/WhatWeDo'
 
-function App() {
+export const Route = createFileRoute('/')({
+  component: LandingPage,
+})
+
+function LandingPage() {
   return (
     <div
       className="relative min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(122,181,46,0.22),transparent_32%),linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900"
@@ -32,5 +37,3 @@ function App() {
     </div>
   )
 }
-
-export default App

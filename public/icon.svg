@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" role="img" aria-label="SV Beet & Bewegung">
+  <title>SV Beet &amp; Bewegung</title>
+  <!-- Forest-green background badge -->
+  <circle cx="50" cy="50" r="50" fill="#1F3D2B"/>
+  <!-- Leaves growing from stem -->
+  <path d="M50 53 Q41 42 37 29 Q46 37 50 53Z" fill="#7AB52E"/>
+  <path d="M50 53 Q47 37 50 21 Q53 37 50 53Z" fill="#7AB52E" opacity="0.82"/>
+  <path d="M50 53 Q59 42 63 29 Q54 37 50 53Z" fill="#7AB52E"/>
+  <!-- Beet bulb -->
+  <ellipse cx="50" cy="66" rx="14" ry="13" fill="#7A1F3D"/>
+  <!-- Beet root tail -->
+  <path d="M49 79 Q48 84 50 89 Q52 84 51 79Z" fill="#7A1F3D" opacity="0.55"/>
+</svg>

@@ -76,7 +76,7 @@ function Hero() {
         className="absolute inset-0 scale-110 bg-cover bg-center opacity-25 blur-2xl"
         style={{
           backgroundImage:
-            "image-set(url('/images/banner.avif') type('image/avif'), url('/images/banner.webp') type('image/webp'), url('/images/banner.png') type('image/png'))",
+            "image-set(url('/images/banner.avif') type('image/avif'), url('/images/banner.webp') type('image/webp'))",
         }}
       />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(31,61,43,0.94)_0%,rgba(45,82,57,0.9)_45%,rgba(122,31,61,0.82)_100%)]" />
@@ -111,7 +111,7 @@ function Hero() {
         ))}
       </div>
 
-      <div className="relative grid gap-7 px-5 py-9 sm:gap-8 sm:px-8 sm:py-16 lg:grid-cols-[1.2fr_0.8fr] lg:items-end lg:px-12 lg:py-20">
+      <div className="relative grid gap-6 px-5 py-7 sm:gap-7 sm:px-8 sm:py-12 lg:grid-cols-[1.2fr_0.8fr] lg:items-end lg:px-12 lg:py-14">
         <div className="space-y-5 sm:space-y-6">
           <p
             className="reveal is-visible inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-leaf-500 ring-1 ring-inset ring-leaf-500/30 backdrop-blur"
@@ -144,8 +144,8 @@ function Hero() {
             className="reveal is-visible max-w-[58ch] text-base text-cream-50/85 sm:text-lg lg:text-xl"
             style={{ '--reveal-delay': '900ms' } as CSSProperties}
           >
-            Gemeinsam gärtnern, Termine abstimmen und Erntemomente festhalten –
-            für zwei engagierte Familien aus Floridsdorf.
+            Zusammen kochen, spielen, gärtnern, Termine abstimmen – mit allen,
+            die im Floridsdorfer Garten regelmäßig dabei sind.
           </p>
           <div
             className="reveal is-visible flex flex-col gap-3 sm:flex-row sm:flex-wrap"
@@ -175,21 +175,21 @@ function Hero() {
           style={{ '--reveal-delay': '1300ms' } as CSSProperties}
         >
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-leaf-500">
-            Wer wir sind
+            Was uns verbindet
           </p>
           <dl className="mt-5 grid gap-4 text-sm text-cream-50/85 sm:text-base">
             <div>
-              <dt className="font-semibold text-cream-50">Familie A</dt>
+              <dt className="font-semibold text-cream-50">Treffen im Garten</dt>
               <dd>
-                Koordiniert den Gartenkalender und sorgt dafür, dass Termine
-                rechtzeitig zur Abstimmung stehen.
+                Grillen, Spieleabende, Sport im Grünen, Lagerfeuer und ganz
+                nebenbei die Beete versorgen – wann immer Zeit ist.
               </dd>
             </div>
             <div>
-              <dt className="font-semibold text-cream-50">Familie B</dt>
+              <dt className="font-semibold text-cream-50">Wer mitmacht</dt>
               <dd>
-                Bringt Beetplanung, Ernteideen und den sportlichen Schwung in
-                die gemeinsamen Treffen.
+                Ein kleiner Kernkreis und viele Freundinnen, Freunde und
+                Bekannte, die regelmäßig vorbeischauen und mitmachen.
               </dd>
             </div>
           </dl>

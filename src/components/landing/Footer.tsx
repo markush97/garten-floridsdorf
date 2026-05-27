@@ -16,8 +16,7 @@ function Footer() {
               SV Beet & Bewegung
             </p>
             <p className="text-sm text-forest-700/80">
-              Gartenplanung, Familienkalender und Doodle in einer gemeinsamen
-              Oberfläche.
+              Treffen, Termine und Pläne rund um unseren Garten in Floridsdorf.
             </p>
           </div>
         </div>

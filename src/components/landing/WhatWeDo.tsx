@@ -8,22 +8,22 @@ import Reveal from './Reveal'
 
 const items = [
   {
-    title: 'Beet',
-    text: 'Aussaat, Pflege und gemeinsame Arbeitstage entstehen direkt aus einer aktiven Umfrage.',
-    icon: PlantIcon,
-    accent: 'from-leaf-500/30 to-leaf-500/0',
-  },
-  {
-    title: 'Ernte',
-    text: 'Sobald Termine feststehen, lässt sich der finale Tag für Ernte, Jause oder Grillrunde markieren.',
+    title: 'Beisammensein',
+    text: 'Grillen, kochen, lange Tafeln, Lagerfeuer und Geburtstage – die meisten Treffen drehen sich ums gemeinsame Essen und Quatschen.',
     icon: AppleIcon,
     accent: 'from-beet-700/30 to-beet-700/0',
   },
   {
-    title: 'Bewegung',
-    text: 'Auch Spaziergänge, Gartenrunden und spontane Familienaktionen passen in denselben Ablauf.',
+    title: 'Spielen & Bewegen',
+    text: 'Brett- und Kartenspiele, Federball, Tischtennis, Spaziergänge oder spontane Sportrunden – Bewegung gehört einfach dazu.',
     icon: RunningShoesIcon,
     accent: 'from-wood-600/30 to-wood-600/0',
+  },
+  {
+    title: 'Garten & Ernte',
+    text: 'Aussaat, Pflege und Ernte laufen nebenher – mal als gemeinsamer Arbeitstag, mal beiläufig beim nächsten Besuch im Beet.',
+    icon: PlantIcon,
+    accent: 'from-leaf-500/30 to-leaf-500/0',
   },
 ] as const
 
@@ -34,8 +34,8 @@ function WhatWeDo() {
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-forest-700">
           Was wir tun
         </p>
-        <h2 className="max-w-[15ch] text-3xl text-forest-900 sm:text-4xl lg:text-5xl">
-          Drei Themenfelder, ein gemeinsamer Ablauf.
+        <h2 className="max-w-[18ch] text-3xl text-forest-900 sm:text-4xl lg:text-5xl">
+          Treffen, genießen, spielen, gärtnern – an einem Ort geplant.
         </h2>
       </Reveal>
 

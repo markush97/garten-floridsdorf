@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "short_name": "",
+  "name": "SV Beet & Bewegung",
+  "short_name": "Beet & Bewegung",
   "icons": [
     {
       "src": "/icons/android-chrome-192x192.png",
@@ -13,7 +13,7 @@
       "type": "image/png"
     }
   ],
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
+  "theme_color": "#1F3D2B",
+  "background_color": "#F5F0E1",
   "display": "standalone"
 }

@@ -23,5 +23,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate route tree
+        run: pnpm exec vite build
+
       - name: Run typecheck
         run: pnpm typecheck

@@ -4,5 +4,5 @@ pages_build_output_dir = "dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "garten-db"
-database_id = "replace-me"
+database_name = "garten-floridsdorf"
+database_id = "482df2b9-2920-45da-8d1a-59d3c380f36f"

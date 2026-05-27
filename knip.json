@@ -15,7 +15,6 @@
     "@tanstack/react-form",
     "react-hook-form",
     "shadcn",
-    "sharp",
     "tailwindcss",
     "tw-animate-css"
   ]
