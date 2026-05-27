@@ -1,5 +1,6 @@
 import {
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -50,4 +51,14 @@ export const votes = sqliteTable(
       t.option_id,
     ),
   ],
+)
+
+export const ip_vote_counts = sqliteTable(
+  'ip_vote_counts',
+  {
+    ip: text('ip').notNull(),
+    poll_id: integer('poll_id').notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.ip, t.poll_id] })],
 )

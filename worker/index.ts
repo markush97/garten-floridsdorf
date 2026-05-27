@@ -1,3 +1,4 @@
+import { and, eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import {
   requireAdmin,
@@ -22,6 +23,7 @@ import {
   listAllPolls,
   upsertVotes,
 } from '../functions/db/queries/polls'
+import { ip_vote_counts } from '../functions/db/schema'
 
 type AppEnv = {
   Bindings: {
@@ -37,7 +39,7 @@ app.onError((err, c) => {
   if (err instanceof AppError) {
     return c.json(
       makeError(err.code, err.message),
-      err.status as 400 | 401 | 403 | 404 | 409 | 500,
+      err.status as 400 | 401 | 403 | 404 | 409 | 429 | 500,
     )
   }
   console.error(err)
@@ -71,7 +73,35 @@ app.post('/polls/:slug/votes', async (c) => {
   }
   const db = createDb(c.env.DB)
   const poll = await findPollWithDetailsBySlug(db, slug)
+
+  const VOTE_LIMIT = 5
+  const ip =
+    c.req.header('CF-Connecting-IP') ??
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
+    'unknown'
+  const existing = await db
+    .select({ count: ip_vote_counts.count })
+    .from(ip_vote_counts)
+    .where(and(eq(ip_vote_counts.ip, ip), eq(ip_vote_counts.poll_id, poll.id)))
+    .get()
+  if ((existing?.count ?? 0) >= VOTE_LIMIT) {
+    throw new AppError(
+      'RATE_LIMITED',
+      'Zu viele Abstimmungen von dieser IP-Adresse. Bitte später erneut versuchen.',
+      429,
+    )
+  }
+
   await upsertVotes(db, poll.id, parsed.data.voter_name, parsed.data.responses)
+
+  await db
+    .insert(ip_vote_counts)
+    .values({ ip, poll_id: poll.id, count: 1 })
+    .onConflictDoUpdate({
+      target: [ip_vote_counts.ip, ip_vote_counts.poll_id],
+      set: { count: sql`${ip_vote_counts.count} + 1` },
+    })
+
   return c.json(await findPollWithDetailsBySlug(db, slug))
 })
 
