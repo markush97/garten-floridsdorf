@@ -144,23 +144,36 @@ describe('upsertVotes', () => {
 })
 
 // ---------------------------------------------------------------------------
-// One-active-poll constraint — verifies createPollWithOptions uses a transaction
+// One-active-poll constraint — verifies createPollWithOptions deactivates
+// existing polls before inserting the new one (D1 does not support transactions)
 // ---------------------------------------------------------------------------
 
 describe('createPollWithOptions', () => {
-  it('wraps creation in a db.transaction to ensure atomicity', async () => {
-    const transaction = vi.fn().mockResolvedValue({
-      id: 1,
-      title: 'Test',
-      is_active: true,
-      description: null,
-      final_option_id: null,
-      created_at: '2026-01-01T00:00:00.000Z',
-      closed_at: null,
-      options: [],
-      votes: [],
-    })
-    const mockDb = { transaction } as never
+  it('deactivates existing polls then inserts the new poll and its options', async () => {
+    const returning = vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        title: 'Test',
+        is_active: true,
+        description: null,
+        final_option_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        closed_at: null,
+      },
+    ])
+    const insertValues = vi.fn().mockReturnValue({ returning })
+    const all = vi.fn().mockResolvedValue([])
+    const selectWhere = vi
+      .fn()
+      .mockReturnValue({ orderBy: vi.fn().mockReturnValue({ all }) })
+    const selectFrom = vi.fn().mockReturnValue({ where: selectWhere })
+    const updateWhere = vi.fn().mockResolvedValue(undefined)
+    const updateSet = vi.fn().mockReturnValue({ where: updateWhere })
+    const mockDb = {
+      update: vi.fn().mockReturnValue({ set: updateSet }),
+      insert: vi.fn().mockReturnValue({ values: insertValues }),
+      select: vi.fn().mockReturnValue({ from: selectFrom }),
+    } as unknown as import('../_lib/db').Database
 
     const { createPollWithOptions } = await import('../db/queries/polls')
     await createPollWithOptions(mockDb, {
@@ -168,6 +181,7 @@ describe('createPollWithOptions', () => {
       options: [{ label: 'A', date: '2026-06-15' }],
     })
 
-    expect(transaction).toHaveBeenCalledOnce()
+    expect(mockDb.update).toHaveBeenCalledOnce()
+    expect(mockDb.insert).toHaveBeenCalledTimes(2)
   })
 })
