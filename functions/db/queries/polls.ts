@@ -94,7 +94,9 @@ export async function createPollWithOptions(
     time: opt.time ?? null,
     sort_order: i,
   }))
-  await db.insert(poll_options).values(optionValues)
+  for (const opt of optionValues) {
+    await db.insert(poll_options).values(opt)
+  }
 
   const options = await db
     .select()
