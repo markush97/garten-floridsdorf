@@ -1,4 +1,4 @@
-import { AddCircleIcon, PencilIcon } from '@hugeicons/core-free-icons'
+import { AddCircleIcon, PencilEdit02Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -168,14 +168,23 @@ export default function VoteForm({ poll }: Props) {
               value={voterName}
             />
             {isNameLocked && (
-              <button
-                aria-label="Namen bearbeiten"
-                className="shrink-0 rounded-lg p-1.5 text-forest-700/60 transition-colors hover:bg-forest-900/8 hover:text-forest-900"
-                onClick={() => setIsNameLocked(false)}
-                type="button"
-              >
-                <HugeiconsIcon icon={PencilIcon} size={16} strokeWidth={1.5} />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label="Namen bearbeiten"
+                    className="shrink-0 rounded-lg p-1.5 text-forest-700/60 transition-colors hover:bg-forest-900/8 hover:text-forest-900"
+                    onClick={() => setIsNameLocked(false)}
+                    type="button"
+                  >
+                    <HugeiconsIcon
+                      icon={PencilEdit02Icon}
+                      size={16}
+                      strokeWidth={1.5}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Namen bearbeiten</TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>

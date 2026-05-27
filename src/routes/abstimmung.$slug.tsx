@@ -51,7 +51,7 @@ function PollPage() {
               <h1 className="text-3xl sm:text-4xl">{poll.title}</h1>
               {poll.description && (
                 <div
-                  className="prose-content mt-2 text-base text-forest-700/80 sm:text-lg"
+                  className="prose-content mt-4 border-l-4 border-leaf-500/40 pl-4 text-base text-forest-700/80 sm:mt-5 sm:pl-5 sm:text-lg"
                   // biome-ignore lint/security/noDangerouslySetInnerHtml: admin-generated WYSIWYG HTML
                   dangerouslySetInnerHTML={{ __html: poll.description }}
                 />
