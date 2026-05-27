@@ -111,7 +111,7 @@ export default function AdminDashboard() {
                     />
                     <Link
                       className="font-medium text-forest-900 hover:text-forest-700 focus-visible:outline-2 focus-visible:outline-forest-700"
-                      to="/poll/$slug"
+                      to="/abstimmung/$slug"
                       params={{ slug: poll.slug }}
                     >
                       {poll.title}

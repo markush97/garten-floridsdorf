@@ -4,7 +4,7 @@ import PollView from '~/components/poll/PollView'
 import VoteForm from '~/components/poll/VoteForm'
 import { usePoll } from '~/services/poll.service'
 
-export const Route = createFileRoute('/poll/$slug')({
+export const Route = createFileRoute('/abstimmung/$slug')({
   component: PollPage,
 })
 

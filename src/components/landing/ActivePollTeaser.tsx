@@ -59,7 +59,7 @@ function ActivePollTeaser() {
               )}
               <Link
                 className="inline-flex min-h-12 items-center rounded-full bg-leaf-500 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-leaf-500/90 focus-visible:outline-2 focus-visible:outline-leaf-500"
-                to="/poll/$slug"
+                to="/abstimmung/$slug"
                 params={{ slug: poll.slug }}
               >
                 Jetzt abstimmen
