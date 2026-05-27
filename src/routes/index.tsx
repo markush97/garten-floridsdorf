@@ -5,6 +5,7 @@ import Footer from '~/components/landing/Footer'
 import Hero from '~/components/landing/Hero'
 import IntroLeaves from '~/components/landing/IntroLeaves'
 import Navbar from '~/components/landing/Navbar'
+import ScrollToTop from '~/components/landing/ScrollToTop'
 import WavyDivider from '~/components/landing/WavyDivider'
 import WhatWeDo from '~/components/landing/WhatWeDo'
 
@@ -34,6 +35,7 @@ function LandingPage() {
         </main>
         <Footer />
       </div>
+      <ScrollToTop />
     </div>
   )
 }
