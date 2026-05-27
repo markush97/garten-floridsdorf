@@ -7,8 +7,3 @@ binding = "DB"
 database_name = "garten-floridsdorf"
 database_id = "482df2b9-2920-45da-8d1a-59d3c380f36f"
 migrations_dir = "drizzle"
-
-[assets]
-directory = "./dist"
-not_found_handling = "single-page-application"
-run_worker_first = ["/api/*"]
