@@ -54,7 +54,19 @@ await new Promise((res) => server.listen(port, '127.0.0.1', res))
 
 let browser
 try {
-  browser = await chromium.launch()
+  browser = await chromium.launch().catch((err) => {
+    if (String(err).includes("Executable doesn't exist")) {
+      console.warn(
+        '⚠  Chromium not found – skipping prerender (no browsers installed).',
+      )
+      return null
+    }
+    throw err
+  })
+  if (!browser) {
+    server.close()
+    process.exit(0)
+  }
   const page = await browser.newPage()
   page.on('pageerror', (err) => console.error('[prerender pageerror]', err))
   page.on('console', (msg) => {
