@@ -8,16 +8,60 @@ const distDir = resolve('dist')
 const indexPath = join(distDir, 'index.html')
 const port = 4567
 
-// The Cloudflare vite plugin emits "triggers": {} which fails wrangler validation.
-// Strip it (and any other empty-object top-level keys it may add in future).
+// The @cloudflare/vite-plugin emits several Workers-only fields into dist/wrangler.json
+// that are invalid for Pages projects. Strip them before Cloudflare Pages reads the file.
 const wranglerJsonPath = join(distDir, 'wrangler.json')
+
+// Fields Pages rejects outright (hard errors):
+const PAGES_UNSUPPORTED = new Set([
+  'assets',
+  'triggers',
+  // dev sub-fields that cause "Unexpected fields found in dev":
+])
+// Noisy top-level fields that cause warnings from the vite plugin's full schema output:
+const PLUGIN_NOISE = new Set([
+  'definedEnvironments',
+  'ai_search_namespaces',
+  'ai_search',
+  'secrets_store_secrets',
+  'artifacts',
+  'unsafe_hello_world',
+  'flagship',
+  'worker_loaders',
+  'ratelimits',
+  'vpc_services',
+  'vpc_networks',
+  'python_modules',
+])
+
 try {
   const raw = await readFile(wranglerJsonPath, 'utf8')
   const cfg = JSON.parse(raw)
-  if ('triggers' in cfg && Object.keys(cfg.triggers).length === 0) {
-    delete cfg.triggers
+  let patched = false
+
+  for (const key of [...PAGES_UNSUPPORTED, ...PLUGIN_NOISE]) {
+    if (key in cfg) {
+      delete cfg[key]
+      patched = true
+    }
+  }
+
+  // Strip dev-level sub-fields that are unknown to Pages
+  if (cfg.dev && typeof cfg.dev === 'object') {
+    for (const k of ['enable_containers', 'generate_types']) {
+      if (k in cfg.dev) {
+        delete cfg.dev[k]
+        patched = true
+      }
+    }
+    if (Object.keys(cfg.dev).length === 0) delete cfg.dev
+  }
+
+  if (patched) {
     await writeFile(wranglerJsonPath, JSON.stringify(cfg, null, 2), 'utf8')
-    console.log('✓ patched dist/wrangler.json (removed empty triggers)')
+    console.log(
+      '✓ patched dist/wrangler.json (removed Pages-incompatible fields)',
+    )
   }
 } catch {
   // wrangler.json may not exist in all build modes; skip silently
