@@ -50,6 +50,13 @@ export default function PollEditor({ pollId }: Props) {
     setOptions((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  function handleTimeInput(idx: number, raw: string) {
+    const digits = raw.replace(/\D/g, '').slice(0, 4)
+    const formatted =
+      digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits
+    updateOption(idx, { time: formatted })
+  }
+
   function updateOption(idx: number, patch: Partial<OptionDraft>) {
     setOptions((prev) =>
       prev.map((opt, i) => (i === idx ? { ...opt, ...patch } : opt)),
@@ -137,13 +144,10 @@ export default function PollEditor({ pollId }: Props) {
                   <Label htmlFor={`opt-time-${idx}`}>Uhrzeit (optional)</Label>
                   <Input
                     id={`opt-time-${idx}`}
+                    inputMode="numeric"
                     maxLength={5}
-                    onChange={(e) =>
-                      updateOption(idx, { time: e.target.value })
-                    }
-                    pattern="[0-2][0-9]:[0-5][0-9]"
+                    onChange={(e) => handleTimeInput(idx, e.target.value)}
                     placeholder="HH:mm"
-                    type="text"
                     value={opt.time}
                   />
                 </div>
