@@ -304,7 +304,7 @@ function EditorShell({
         <span className="text-sm font-medium text-forest-700">Admin</span>
       </header>
       <main className="mx-auto w-full max-w-[1180px] px-3 pb-20 pt-2 sm:px-6 lg:px-8">
-        <div className="max-w-2xl space-y-6 rounded-[1.5rem] bg-white/75 p-5 shadow-[0_8px_24px_rgba(31,61,43,0.07)] ring-1 ring-inset ring-white/40 backdrop-blur sm:p-8">
+        <div className="mx-auto max-w-2xl space-y-6 rounded-[1.5rem] bg-white/75 p-5 shadow-[0_8px_24px_rgba(31,61,43,0.07)] ring-1 ring-inset ring-white/40 backdrop-blur sm:p-8">
           <h1 className="text-2xl text-forest-900">{title}</h1>
           {children}
         </div>
