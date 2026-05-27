@@ -20,29 +20,37 @@ const RESPONSE_CLASSES = {
 const STICKY_COL = 'sticky left-0 z-[1] bg-white px-4'
 
 function VoteCell({ vote }: { vote: Vote | undefined }) {
-  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   if (!vote) {
     return <span className="text-xs text-forest-700/30">–</span>
   }
+  const hasComment = Boolean(vote.comment)
+  const isLong = hasComment && (vote.comment?.length ?? 0) > 30
   return (
     <div className="flex flex-col items-center gap-1">
-      <button
-        aria-label={`${RESPONSE_LABELS[vote.response]}${vote.comment ? ' – Kommentar anzeigen' : ''}`}
+      <span
         className={cn(
           'rounded-full px-2.5 py-0.5 text-xs font-semibold',
           RESPONSE_CLASSES[vote.response],
-          vote.comment && 'cursor-pointer',
         )}
-        onClick={() => vote.comment && setOpen((o) => !o)}
-        type="button"
       >
         {RESPONSE_LABELS[vote.response]}
-      </button>
-      {open && vote.comment && (
-        <p className="max-w-40 text-center text-[0.7rem] leading-snug text-forest-700/70">
-          {vote.comment}
-        </p>
-      )}
+      </span>
+      {hasComment &&
+        (isLong && !expanded ? (
+          <button
+            aria-label="Vollständigen Kommentar anzeigen"
+            className="max-w-40 cursor-pointer truncate text-[0.7rem] leading-snug text-forest-700/70 hover:text-forest-900"
+            onClick={() => setExpanded(true)}
+            type="button"
+          >
+            {vote.comment}
+          </button>
+        ) : (
+          <p className="max-w-40 text-center text-[0.7rem] leading-snug text-forest-700/70">
+            {vote.comment}
+          </p>
+        ))}
     </div>
   )
 }
