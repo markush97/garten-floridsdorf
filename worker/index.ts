@@ -42,8 +42,12 @@ app.onError((err, c) => {
       err.status as 400 | 401 | 403 | 404 | 409 | 429 | 500,
     )
   }
-  console.error(err)
-  return c.json(makeError('INTERNAL_ERROR', 'Interner Serverfehler'), 500)
+  console.error('[worker]', err)
+  const detail = err instanceof Error ? err.message : String(err)
+  return c.json(
+    makeError('INTERNAL_ERROR', `Interner Serverfehler: ${detail}`),
+    500,
+  )
 })
 
 // ── Public endpoints ────────────────────────────────────────────────────────
