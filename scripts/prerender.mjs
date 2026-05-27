@@ -8,6 +8,21 @@ const distDir = resolve('dist')
 const indexPath = join(distDir, 'index.html')
 const port = 4567
 
+// The Cloudflare vite plugin emits "triggers": {} which fails wrangler validation.
+// Strip it (and any other empty-object top-level keys it may add in future).
+const wranglerJsonPath = join(distDir, 'wrangler.json')
+try {
+  const raw = await readFile(wranglerJsonPath, 'utf8')
+  const cfg = JSON.parse(raw)
+  if ('triggers' in cfg && Object.keys(cfg.triggers).length === 0) {
+    delete cfg.triggers
+    await writeFile(wranglerJsonPath, JSON.stringify(cfg, null, 2), 'utf8')
+    console.log('✓ patched dist/wrangler.json (removed empty triggers)')
+  }
+} catch {
+  // wrangler.json may not exist in all build modes; skip silently
+}
+
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
