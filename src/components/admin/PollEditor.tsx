@@ -137,10 +137,13 @@ export default function PollEditor({ pollId }: Props) {
                   <Label htmlFor={`opt-time-${idx}`}>Uhrzeit (optional)</Label>
                   <Input
                     id={`opt-time-${idx}`}
+                    maxLength={5}
                     onChange={(e) =>
                       updateOption(idx, { time: e.target.value })
                     }
-                    type="time"
+                    pattern="[0-2][0-9]:[0-5][0-9]"
+                    placeholder="HH:mm"
+                    type="text"
                     value={opt.time}
                   />
                 </div>
