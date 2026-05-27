@@ -43,9 +43,19 @@ app.onError((err, c) => {
     )
   }
   console.error('[worker]', err)
+  if (err instanceof Error && err.cause) {
+    console.error('[worker] cause:', err.cause)
+  }
   const detail = err instanceof Error ? err.message : String(err)
+  const causeDetail =
+    err instanceof Error && err.cause instanceof Error
+      ? ` | cause: ${err.cause.message}`
+      : ''
   return c.json(
-    makeError('INTERNAL_ERROR', `Interner Serverfehler: ${detail}`),
+    makeError(
+      'INTERNAL_ERROR',
+      `Interner Serverfehler: ${detail}${causeDetail}`,
+    ),
     500,
   )
 })
