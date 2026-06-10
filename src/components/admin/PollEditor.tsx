@@ -14,6 +14,7 @@ import {
   useCreatePoll,
   useFinalizePoll,
 } from '~/services/admin.service'
+import { useAdminEventForPoll, useCreateEvent } from '~/services/event.service'
 import { usePoll } from '~/services/poll.service'
 import { Badge } from '~/ui/badge'
 import { Button } from '~/ui/button'
@@ -238,6 +239,9 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
   const { data: poll } = usePoll(pollSummary?.slug ?? '')
   const { mutate: finalizePoll, isPending: isFinalizing } = useFinalizePoll()
   const { mutate: addOptions, isPending: isAdding } = useAddPollOptions()
+  const { mutate: createEvent, isPending: isCreatingEvent } = useCreateEvent()
+  const { data: existingEvent } = useAdminEventForPoll(pollId)
+  const navigate = useNavigate()
 
   const newUidRef = useRef(0)
   const [newOptions, setNewOptions] = useState<OptionDraft[]>([])
@@ -318,6 +322,28 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
       {
         onSuccess: () => toast.success('Termin aufgehoben.'),
         onError: () => toast.error('Fehler beim Aufheben des Termins.'),
+      },
+    )
+  }
+
+  function handleCreateEventFromPoll() {
+    if (!pollSummary || !lockedOption) return
+    createEvent(
+      {
+        title: pollSummary.title,
+        scheduled_date: lockedOption.date,
+        scheduled_time: lockedOption.time ?? undefined,
+        poll_id: pollSummary.id,
+      },
+      {
+        onSuccess: (event) => {
+          toast.success('Termin angelegt.')
+          void navigate({
+            to: '/admin/events/$slug',
+            params: { slug: event.slug },
+          })
+        },
+        onError: () => toast.error('Termin konnte nicht angelegt werden.'),
       },
     )
   }
@@ -404,16 +430,38 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
                 </p>
               </div>
             </div>
-            <Button
-              aria-label="Festgelegten Termin aufheben"
-              className="text-beet-700 hover:bg-beet-700/10 hover:text-beet-700"
-              disabled={isFinalizing}
-              onClick={handleUnlockOption}
-              size="sm"
-              variant="outline"
-            >
-              Termin aufheben
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {existingEvent ? (
+                <Button asChild size="sm">
+                  <Link
+                    params={{ slug: existingEvent.slug }}
+                    to="/admin/events/$slug"
+                  >
+                    Termin öffnen
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  aria-label="Termin anlegen"
+                  data-testid="create-event-from-poll"
+                  disabled={isCreatingEvent}
+                  onClick={handleCreateEventFromPoll}
+                  size="sm"
+                >
+                  {isCreatingEvent ? 'Wird angelegt …' : 'Termin anlegen'}
+                </Button>
+              )}
+              <Button
+                aria-label="Festgelegten Termin aufheben"
+                className="text-beet-700 hover:bg-beet-700/10 hover:text-beet-700"
+                disabled={isFinalizing}
+                onClick={handleUnlockOption}
+                size="sm"
+                variant="outline"
+              >
+                Termin aufheben
+              </Button>
+            </div>
           </div>
         )}
 

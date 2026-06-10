@@ -74,3 +74,130 @@ export const ip_vote_counts = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.ip, t.poll_id] })],
 )
+
+// ---------------------------------------------------------------------------
+// Events: a single scheduled meeting (created by the admin from a locked poll
+// or directly). Holds attendance, agenda items, and transcription.
+// ---------------------------------------------------------------------------
+
+export const events = sqliteTable('events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  slug: text('slug').notNull().unique(),
+  poll_id: integer('poll_id').references(() => polls.id, {
+    onDelete: 'set null',
+  }),
+  title: text('title').notNull(),
+  scheduled_date: text('scheduled_date').notNull(),
+  scheduled_time: text('scheduled_time'),
+  location: text('location'),
+  agenda: text('agenda'),
+  transcription: text('transcription'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+// Planned (= invited) attendees. The admin populates this when preparing
+// the event; it does not require a real User row — we keep it as a free-form
+// name string so the same workflow works for "Bringt Oma mit" style entries.
+export const event_planned_attendees = sqliteTable('event_planned_attendees', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  name: text('name').notNull(),
+  sort_order: integer('sort_order').notNull().default(0),
+})
+
+// Actual attendance recorded at the meeting. We snapshot the name so the
+// list survives even if the linked user is deleted.
+export const event_actual_attendees = sqliteTable('event_actual_attendees', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  name: text('name').notNull(),
+  sort_order: integer('sort_order').notNull().default(0),
+})
+
+// An agenda item. `status` is one of "open" | "discussed" | "skipped".
+// `notes` is the free-form discussion outcome. `sort_order` lets the admin
+// reorder the agenda; updates rewrite the entire order via the service.
+export const event_agenda_items = sqliteTable('event_agenda_items', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  notes: text('notes'),
+  status: text('status', {
+    enum: ['open', 'discussed', 'skipped'],
+  })
+    .notNull()
+    .default('open'),
+  sort_order: integer('sort_order').notNull().default(0),
+})
+
+// An agenda vote. `vote_type` is "yn" (yes/no) or "options" (free-form list).
+// `counting_mode` is "anonymous" (the transcriber enters counts directly) or
+// "per_attendee" (each present attendee casts a vote via the join table).
+export const event_agenda_votes = sqliteTable('event_agenda_votes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  agenda_item_id: integer('agenda_item_id')
+    .notNull()
+    .references(() => event_agenda_items.id, { onDelete: 'cascade' }),
+  question: text('question').notNull(),
+  vote_type: text('vote_type', { enum: ['yn', 'options'] }).notNull(),
+  counting_mode: text('counting_mode', {
+    enum: ['anonymous', 'per_attendee'],
+  }).notNull(),
+  result_note: text('result_note'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+// Options for an agenda vote. For `vote_type='yn'` the two rows are
+// "Ja" / "Nein" and `count` holds the tally. For `per_attendee` votes
+// `count` stays at zero — the attendee_votes join table is the source
+// of truth. `label` is editable for `vote_type='options'` only.
+export const event_agenda_vote_options = sqliteTable(
+  'event_agenda_vote_options',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    vote_id: integer('vote_id')
+      .notNull()
+      .references(() => event_agenda_votes.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    count: integer('count').notNull().default(0),
+    sort_order: integer('sort_order').notNull().default(0),
+  },
+)
+
+// Per-attendee vote responses. Only populated for `counting_mode='per_attendee'`.
+// `option_id` is nullable for y/n votes where the response is stored as a
+// boolean `response` (true=ja, false=nein) so we don't need the Ja/Nein rows.
+export const event_attendee_votes = sqliteTable(
+  'event_attendee_votes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    vote_id: integer('vote_id')
+      .notNull()
+      .references(() => event_agenda_votes.id, { onDelete: 'cascade' }),
+    attendee_id: integer('attendee_id')
+      .notNull()
+      .references(() => event_actual_attendees.id, { onDelete: 'cascade' }),
+    option_id: integer('option_id').references(
+      () => event_agenda_vote_options.id,
+      { onDelete: 'cascade' },
+    ),
+    response: integer('response', { mode: 'boolean' }),
+  },
+  (t) => [
+    uniqueIndex('event_attendee_votes_unique').on(t.vote_id, t.attendee_id),
+  ],
+)

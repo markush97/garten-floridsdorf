@@ -11,4 +11,10 @@ export const queryKeys = {
     admin: ['users', 'admin'] as const,
     detail: (slug: string) => ['users', 'detail', slug] as const,
   },
+  events: {
+    all: ['events'] as const,
+    admin: ['events', 'admin'] as const,
+    detail: (slug: string) => ['events', 'detail', slug] as const,
+    forPoll: (pollId: number) => ['events', 'for-poll', pollId] as const,
+  },
 }

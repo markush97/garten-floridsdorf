@@ -9,6 +9,18 @@ import {
 import { createDb } from '../functions/_lib/db'
 import { AppError, makeError } from '../functions/_lib/errors'
 import {
+  createEventAgendaItemInputSchema,
+  createEventAgendaVoteInputSchema,
+  createEventAttendeeInputSchema,
+  createEventInputSchema,
+  reorderEventAgendaItemsInputSchema,
+  updateAttendeeVoteInputSchema,
+  updateEventAgendaItemInputSchema,
+  updateEventAgendaVoteInputSchema,
+  updateEventAttendeesInputSchema,
+  updateEventInputSchema,
+} from '../functions/contracts/event'
+import {
   addPollOptionsInputSchema,
   adminLoginInputSchema,
   createPollInputSchema,
@@ -19,6 +31,29 @@ import {
   createUserInputSchema,
   updateUserInputSchema,
 } from '../functions/contracts/user'
+import {
+  addActualAttendee,
+  addAgendaItem,
+  addAgendaVote,
+  addPlannedAttendee,
+  createEvent,
+  deleteAgendaItem,
+  deleteAgendaVote,
+  deleteEvent,
+  findEventBySlugOrThrow,
+  findEventForPoll,
+  findEventWithDetails,
+  listAllEvents,
+  removeActualAttendee,
+  removePlannedAttendee,
+  reorderAgendaItems,
+  replaceActualAttendees,
+  replacePlannedAttendees,
+  setAttendeeVote,
+  updateAgendaItem,
+  updateAgendaVote,
+  updateEvent,
+} from '../functions/db/queries/events'
 import {
   addPollOptions,
   createPollWithOptions,
@@ -267,5 +302,260 @@ app.delete('/admin/users/:slug', async (c) => {
   await deleteUser(db, existing.id)
   return c.json({ ok: true })
 })
+
+// ── Events ────────────────────────────────────────────────────────────────
+
+app.get('/admin/events', async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listAllEvents(db))
+})
+
+app.get('/admin/events/by-poll/:pollId', async (c) => {
+  const pollId = Number(c.req.param('pollId'))
+  if (!Number.isInteger(pollId) || pollId <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventForPoll(db, pollId)
+  return c.json(event)
+})
+
+app.post('/admin/events', async (c) => {
+  const body = await c.req.json()
+  const parsed = createEventInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await createEvent(db, parsed.data)
+  return c.json(event, 201)
+})
+
+app.get('/admin/events/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await findEventWithDetails(db, event.id))
+})
+
+app.patch('/admin/events/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = updateEventInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await updateEvent(db, event.id, parsed.data)
+  return c.json(await findEventWithDetails(db, event.id))
+})
+
+app.delete('/admin/events/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await deleteEvent(db, event.id)
+  return c.json({ ok: true })
+})
+
+app.put('/admin/events/:slug/planned-attendees', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = updateEventAttendeesInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await replacePlannedAttendees(db, event.id, parsed.data))
+})
+
+app.put('/admin/events/:slug/actual-attendees', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = updateEventAttendeesInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await replaceActualAttendees(db, event.id, parsed.data))
+})
+
+app.post('/admin/events/:slug/planned-attendees/single', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = createEventAttendeeInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await addPlannedAttendee(db, event.id, parsed.data), 201)
+})
+
+app.post('/admin/events/:slug/actual-attendees/single', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = createEventAttendeeInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await addActualAttendee(db, event.id, parsed.data), 201)
+})
+
+app.delete('/admin/events/:slug/planned-attendees/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await removePlannedAttendee(db, event.id, id)
+  return c.json({ ok: true })
+})
+
+app.delete('/admin/events/:slug/actual-attendees/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await removeActualAttendee(db, event.id, id)
+  return c.json({ ok: true })
+})
+
+// ── Agenda items + votes ──────────────────────────────────────────────────
+
+app.post('/admin/events/:slug/agenda-items', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = createEventAgendaItemInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const item = await addAgendaItem(db, event.id, parsed.data)
+  return c.json(item, 201)
+})
+
+app.patch('/admin/events/:slug/agenda-items/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = updateEventAgendaItemInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const item = await updateAgendaItem(db, event.id, id, parsed.data)
+  return c.json(item)
+})
+
+app.delete('/admin/events/:slug/agenda-items/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await deleteAgendaItem(db, event.id, id)
+  return c.json({ ok: true })
+})
+
+app.put('/admin/events/:slug/agenda-items/order', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = reorderEventAgendaItemsInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await reorderAgendaItems(db, event.id, parsed.data.order))
+})
+
+app.post('/admin/events/:slug/agenda-items/:id/votes', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = createEventAgendaVoteInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await addAgendaVote(db, event.id, id, parsed.data), 201)
+})
+
+app.patch('/admin/events/:slug/agenda-votes/:voteId', async (c) => {
+  const slug = c.req.param('slug')
+  const voteId = Number(c.req.param('voteId'))
+  if (!Number.isInteger(voteId) || voteId <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = updateEventAgendaVoteInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  // Slug is part of the URL for consistency; we don't need to load the
+  // event here, the vote query is enough.
+  void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
+  const db = createDb(c.env.DB)
+  return c.json(await updateAgendaVote(db, voteId, parsed.data))
+})
+
+app.delete('/admin/events/:slug/agenda-votes/:voteId', async (c) => {
+  const slug = c.req.param('slug')
+  const voteId = Number(c.req.param('voteId'))
+  if (!Number.isInteger(voteId) || voteId <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
+  const db = createDb(c.env.DB)
+  await deleteAgendaVote(db, voteId)
+  return c.json({ ok: true })
+})
+
+app.put(
+  '/admin/events/:slug/agenda-votes/:voteId/attendees/:attendeeId',
+  async (c) => {
+    const slug = c.req.param('slug')
+    const voteId = Number(c.req.param('voteId'))
+    const attendeeId = Number(c.req.param('attendeeId'))
+    if (
+      !Number.isInteger(voteId) ||
+      voteId <= 0 ||
+      !Number.isInteger(attendeeId) ||
+      attendeeId <= 0
+    ) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+    }
+    const body = await c.req.json()
+    const parsed = updateAttendeeVoteInputSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    }
+    void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
+    const db = createDb(c.env.DB)
+    return c.json(await setAttendeeVote(db, voteId, attendeeId, parsed.data))
+  },
+)
 
 export default app

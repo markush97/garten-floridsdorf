@@ -2,12 +2,13 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '~/lib/ui-utils'
 
 type AdminNavItem = {
-  to: '/admin/polls' | '/admin/users'
+  to: '/admin/polls' | '/admin/users' | '/admin/events'
   label: string
 }
 
 const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   { to: '/admin/polls', label: 'Umfragen' },
+  { to: '/admin/events', label: 'Termine' },
   { to: '/admin/users', label: 'Benutzer' },
 ] as const
 
