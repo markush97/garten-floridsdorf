@@ -6,4 +6,9 @@ export const queryKeys = {
     detail: (pollId: string) => ['polls', 'detail', pollId] as const,
     admin: ['polls', 'admin'] as const,
   },
+  users: {
+    all: ['users'] as const,
+    admin: ['users', 'admin'] as const,
+    detail: (slug: string) => ['users', 'detail', slug] as const,
+  },
 }

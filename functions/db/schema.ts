@@ -17,6 +17,18 @@ export const polls = sqliteTable('polls', {
   closed_at: text('closed_at'),
 })
 
+export const users = sqliteTable('users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  slug: text('slug').notNull().unique(),
+  first_name: text('first_name').notNull(),
+  last_name: text('last_name').notNull(),
+  email: text('email'),
+  phone: text('phone'),
+  description: text('description'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
 export const poll_options = sqliteTable('poll_options', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   poll_id: integer('poll_id')

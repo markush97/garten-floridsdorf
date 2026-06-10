@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '~/ui/dialog'
+import AdminShell from './AdminShell'
 
 function StatusBadge({
   isActive,
@@ -213,30 +214,5 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
     </AdminShell>
-  )
-}
-
-function AdminShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
-      <header className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          <Link to="/">
-            <img
-              alt="SV Beet & Bewegung"
-              className="h-9 w-9 mix-blend-multiply"
-              src="/brand/icon.png"
-            />
-          </Link>
-          <span className="text-sm font-medium text-forest-700">Admin</span>
-        </div>
-        <Link className="text-xs text-forest-700/60 underline" to="/">
-          Zur Startseite
-        </Link>
-      </header>
-      <main className="mx-auto w-full max-w-[1180px] px-3 pb-20 sm:px-6 lg:px-8">
-        {children}
-      </main>
-    </div>
   )
 }

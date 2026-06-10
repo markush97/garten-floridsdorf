@@ -16,6 +16,10 @@ import {
   submitVotesInputSchema,
 } from '../functions/contracts/poll'
 import {
+  createUserInputSchema,
+  updateUserInputSchema,
+} from '../functions/contracts/user'
+import {
   addPollOptions,
   createPollWithOptions,
   deletePoll,
@@ -26,6 +30,13 @@ import {
   listAllPolls,
   upsertVotes,
 } from '../functions/db/queries/polls'
+import {
+  createUser,
+  deleteUser,
+  findUserBySlugOrThrow,
+  listAllUsers,
+  updateUser,
+} from '../functions/db/queries/users'
 import { ip_vote_counts } from '../functions/db/schema'
 
 type AppEnv = {
@@ -209,6 +220,51 @@ app.delete('/admin/polls/:id', async (c) => {
   }
   const db = createDb(c.env.DB)
   await deletePoll(db, id)
+  return c.json({ ok: true })
+})
+
+app.get('/admin/users', async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listAllUsers(db))
+})
+
+app.post('/admin/users', async (c) => {
+  const body = await c.req.json()
+  const parsed = createUserInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const user = await createUser(db, parsed.data)
+  return c.json(user, 201)
+})
+
+app.get('/admin/users/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const user = await findUserBySlugOrThrow(db, slug)
+  return c.json(user)
+})
+
+app.patch('/admin/users/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = updateUserInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  // Resolve slug → id once so the update query hits the same row.
+  const existing = await findUserBySlugOrThrow(db, slug)
+  const user = await updateUser(db, existing.id, parsed.data)
+  return c.json(user)
+})
+
+app.delete('/admin/users/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const existing = await findUserBySlugOrThrow(db, slug)
+  await deleteUser(db, existing.id)
   return c.json({ ok: true })
 })
 
