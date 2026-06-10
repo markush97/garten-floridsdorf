@@ -21,6 +21,7 @@ import {
   deletePoll,
   finalizePoll,
   findActivePollWithDetails,
+  findNextLockedEvent,
   findPollWithDetailsBySlug,
   listAllPolls,
   upsertVotes,
@@ -71,6 +72,20 @@ app.get('/polls/active', async (c) => {
     return c.json(makeError('NOT_FOUND', 'Keine aktive Umfrage'), 404)
   }
   return c.json(poll)
+})
+
+app.get('/polls/next', async (c) => {
+  const db = createDb(c.env.DB)
+  const event = await findNextLockedEvent(db)
+  if (!event) {
+    return c.json(makeError('NOT_FOUND', 'Kein bevorstehender Termin'), 404)
+  }
+  return c.json({
+    poll_id: event.pollId,
+    slug: event.slug,
+    title: event.title,
+    option: event.option,
+  })
 })
 
 app.get('/polls/:slug', async (c) => {

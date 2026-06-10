@@ -1,7 +1,13 @@
+import {
+  CalendarCheckIn01Icon,
+  CheckmarkCircle01Icon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
+import { cn } from '~/lib/ui-utils'
 import {
   useAddPollOptions,
   useAdminPolls,
@@ -9,8 +15,17 @@ import {
   useFinalizePoll,
 } from '~/services/admin.service'
 import { usePoll } from '~/services/poll.service'
+import { Badge } from '~/ui/badge'
 import { Button } from '~/ui/button'
 import { DatePicker } from '~/ui/date-picker'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '~/ui/dialog'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { RichTextEditor } from '~/ui/rich-text-editor'
@@ -226,6 +241,7 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
 
   const newUidRef = useRef(0)
   const [newOptions, setNewOptions] = useState<OptionDraft[]>([])
+  const [lockConfirmId, setLockConfirmId] = useState<number | null>(null)
 
   function addNewOptionRow() {
     newUidRef.current += 1
@@ -283,6 +299,29 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
     )
   }
 
+  function handleLockOption(optionId: number) {
+    finalizePoll(
+      { id: pollId, data: { final_option_id: optionId } },
+      {
+        onSuccess: () => {
+          setLockConfirmId(null)
+          toast.success('Termin festgelegt – erscheint auf der Startseite.')
+        },
+        onError: () => toast.error('Fehler beim Festlegen des Termins.'),
+      },
+    )
+  }
+
+  function handleUnlockOption() {
+    finalizePoll(
+      { id: pollId, data: { final_option_id: null } },
+      {
+        onSuccess: () => toast.success('Termin aufgehoben.'),
+        onError: () => toast.error('Fehler beim Aufheben des Termins.'),
+      },
+    )
+  }
+
   if (!pollSummary) {
     return (
       <EditorShell title="Umfrage">
@@ -301,6 +340,10 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
         return (a.time ?? '').localeCompare(b.time ?? '')
       })
     : []
+
+  const lockedOption = pollSummary?.final_option_id
+    ? (poll?.options.find((o) => o.id === pollSummary.final_option_id) ?? null)
+    : null
 
   return (
     <EditorShell title={pollSummary.title}>
@@ -329,6 +372,51 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
           </div>
         </div>
 
+        {pollSummary.final_option_id && lockedOption && (
+          <div
+            className="flex flex-col gap-3 rounded-[1.25rem] bg-leaf-500/10 p-5 ring-1 ring-inset ring-leaf-500/30 sm:flex-row sm:items-center sm:justify-between"
+            data-testid="locked-event-banner"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-leaf-500/20 text-leaf-500">
+                <HugeiconsIcon
+                  icon={CalendarCheckIn01Icon}
+                  size={22}
+                  strokeWidth={1.8}
+                />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-leaf-500">
+                  Festgelegter Termin
+                </p>
+                <p className="mt-1 font-display text-lg text-forest-900 sm:text-xl">
+                  {dayjs(lockedOption.date)
+                    .tz(DEFAULT_TIMEZONE)
+                    .format('dddd, D. MMMM YYYY')}
+                  {lockedOption.time && (
+                    <span className="ml-2 text-base font-normal text-forest-700/80">
+                      {lockedOption.time} Uhr
+                    </span>
+                  )}
+                </p>
+                <p className="mt-1 text-sm text-forest-700/80">
+                  Erscheint auf der Startseite als „Nächster Termin“.
+                </p>
+              </div>
+            </div>
+            <Button
+              aria-label="Festgelegten Termin aufheben"
+              className="text-beet-700 hover:bg-beet-700/10 hover:text-beet-700"
+              disabled={isFinalizing}
+              onClick={handleUnlockOption}
+              size="sm"
+              variant="outline"
+            >
+              Termin aufheben
+            </Button>
+          </div>
+        )}
+
         <Separator />
 
         <div className="space-y-3">
@@ -345,23 +433,60 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
                 const label = dayjs(opt.date)
                   .tz(DEFAULT_TIMEZONE)
                   .format('dddd, D. MMMM YYYY')
+                const isLocked = pollSummary.final_option_id === opt.id
                 return (
                   <li
-                    className="flex flex-col gap-1 rounded-[1rem] bg-white/60 px-4 py-3 ring-1 ring-inset ring-forest-900/8 sm:flex-row sm:items-center sm:justify-between"
+                    className={cn(
+                      'flex flex-col gap-2 rounded-[1rem] px-4 py-3 ring-1 ring-inset sm:flex-row sm:items-center sm:justify-between',
+                      isLocked
+                        ? 'bg-leaf-500/10 ring-leaf-500/30'
+                        : 'bg-white/60 ring-forest-900/8',
+                    )}
                     key={opt.id}
                   >
-                    <span className="font-medium text-forest-900">
-                      {label}
-                      {opt.time && (
-                        <span className="ml-2 text-sm font-normal text-forest-700/70">
-                          {opt.time} Uhr
+                    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="font-medium text-forest-900">
+                        {label}
+                        {opt.time && (
+                          <span className="ml-2 text-sm font-normal text-forest-700/70">
+                            {opt.time} Uhr
+                          </span>
+                        )}
+                      </span>
+                      {opt.label && (
+                        <span className="text-sm text-forest-700/70">
+                          {opt.label}
                         </span>
                       )}
-                    </span>
-                    {opt.label && (
-                      <span className="text-sm text-forest-700/70">
-                        {opt.label}
-                      </span>
+                      {isLocked && (
+                        <Badge className="w-fit bg-leaf-500/20 text-leaf-500 ring-leaf-500/40">
+                          <HugeiconsIcon
+                            aria-hidden="true"
+                            icon={CheckmarkCircle01Icon}
+                            size={12}
+                            strokeWidth={2}
+                          />
+                          Festgelegt
+                        </Badge>
+                      )}
+                    </div>
+                    {!isLocked && (
+                      <Button
+                        aria-label={`Termin auf ${label} festlegen`}
+                        className="shrink-0 self-start text-xs sm:self-auto"
+                        disabled={isFinalizing}
+                        onClick={() => setLockConfirmId(opt.id)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <HugeiconsIcon
+                          aria-hidden="true"
+                          icon={CheckmarkCircle01Icon}
+                          size={14}
+                          strokeWidth={1.8}
+                        />
+                        Termin festlegen
+                      </Button>
                     )}
                   </li>
                 )
@@ -369,6 +494,49 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
             </ul>
           )}
         </div>
+
+        <Dialog
+          onOpenChange={(open) => !open && setLockConfirmId(null)}
+          open={lockConfirmId !== null}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Termin festlegen?</DialogTitle>
+              <DialogDescription>
+                {(() => {
+                  const opt = poll?.options.find((o) => o.id === lockConfirmId)
+                  if (!opt) return null
+                  const label = dayjs(opt.date)
+                    .tz(DEFAULT_TIMEZONE)
+                    .format('dddd, D. MMMM YYYY')
+                  return (
+                    <span className="block pt-1">
+                      <span className="font-semibold text-forest-900">
+                        {label}
+                        {opt.time && ` · ${opt.time} Uhr`}
+                      </span>{' '}
+                      wird als „Nächster Termin“ auf der Startseite angezeigt.
+                      Du kannst die Auswahl jederzeit wieder aufheben.
+                    </span>
+                  )
+                })()}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button onClick={() => setLockConfirmId(null)} variant="outline">
+                Abbrechen
+              </Button>
+              <Button
+                disabled={isFinalizing || lockConfirmId === null}
+                onClick={() =>
+                  lockConfirmId !== null && handleLockOption(lockConfirmId)
+                }
+              >
+                {isFinalizing ? 'Wird gespeichert …' : 'Termin festlegen'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Separator />
 

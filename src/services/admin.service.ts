@@ -63,6 +63,7 @@ export function useFinalizePoll() {
         queryKey: queryKeys.polls.detail(String(id)),
       })
       void queryClient.invalidateQueries({ queryKey: queryKeys.polls.active })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.polls.next })
     },
   })
 }

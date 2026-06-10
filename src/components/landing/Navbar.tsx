@@ -3,6 +3,7 @@ import { cn } from '~/lib/ui-utils'
 const navigationItems = [
   { href: '#ueber-uns', label: 'Über uns' },
   { href: '#was-wir-tun', label: 'Was wir tun' },
+  { href: '#naechster-termin', label: 'Nächster Termin' },
   { href: '#aktuelle-umfrage', label: 'Aktuelle Umfrage' },
 ] as const
 

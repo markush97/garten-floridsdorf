@@ -96,3 +96,11 @@ export type CreatePollInput = z.infer<typeof createPollInputSchema>
 export type SubmitVotesInput = z.infer<typeof submitVotesInputSchema>
 export type FinalizePollInput = z.infer<typeof finalizePollInputSchema>
 export type AddPollOptionsInput = z.infer<typeof addPollOptionsInputSchema>
+
+export const nextEventSchema = z.object({
+  poll_id: z.number(),
+  slug: z.string(),
+  title: z.string(),
+  option: pollOptionSchema,
+})
+export type NextEvent = z.infer<typeof nextEventSchema>

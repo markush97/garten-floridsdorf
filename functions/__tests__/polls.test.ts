@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createPollInputSchema,
   finalizePollInputSchema,
+  nextEventSchema,
   submitVotesInputSchema,
 } from '../contracts/poll'
-import { upsertVotes } from '../db/queries/polls'
+import { findNextLockedEvent, upsertVotes } from '../db/queries/polls'
 
 // ---------------------------------------------------------------------------
 // Zod contract schemas
@@ -187,5 +188,164 @@ describe('createPollWithOptions', () => {
     // Drizzle emitting null for the AUTOINCREMENT id column on D1
     expect(mockDb.insert).toHaveBeenCalledOnce()
     expect(mockDb.run).toHaveBeenCalledOnce()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Next-locked-event — verify landing-page feed picks the right option
+// ---------------------------------------------------------------------------
+
+function buildLockedPollMock(
+  polls: Array<{
+    id: number
+    title: string
+    slug: string
+    final_option_id: number
+  }>,
+  options: Array<{
+    id: number
+    poll_id: number
+    label: string
+    date: string
+    time: string | null
+    sort_order: number
+  }>,
+) {
+  // Two select calls: first for polls (filtered to isNotNull final_option_id),
+  // second for poll_options with a SQL `IN (...)` clause.
+  const callResults: unknown[][] = [polls, options]
+  const selectMock = vi.fn().mockImplementation(() => {
+    const next = callResults.shift() ?? []
+    return {
+      from: () => ({
+        where: () => ({ all: async () => next }),
+      }),
+    }
+  })
+  return { select: selectMock } as never
+}
+
+function makeLockedOption(id: number, pollId: number, date: string) {
+  return {
+    id,
+    poll_id: pollId,
+    label: 'Option',
+    date,
+    time: null,
+    sort_order: 0,
+  }
+}
+
+describe('nextEventSchema', () => {
+  it('accepts a valid next-event payload', () => {
+    const result = nextEventSchema.safeParse({
+      poll_id: 1,
+      slug: 'garten-juni',
+      title: 'Gartentag',
+      option: makeLockedOption(7, 1, '2026-06-15'),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an unknown option shape', () => {
+    const result = nextEventSchema.safeParse({
+      poll_id: 1,
+      slug: 'x',
+      title: 'x',
+      option: { id: 'not-a-number' },
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('findNextLockedEvent', () => {
+  it('returns null when no poll is locked yet', async () => {
+    const db = buildLockedPollMock([], [])
+    const result = await findNextLockedEvent(db)
+    expect(result).toBeNull()
+  })
+
+  it('returns the upcoming locked event (sorted by date)', async () => {
+    const polls = [
+      {
+        id: 1,
+        title: 'A',
+        slug: 'a',
+        final_option_id: 10,
+      },
+      {
+        id: 2,
+        title: 'B',
+        slug: 'b',
+        final_option_id: 20,
+      },
+    ]
+    const options = [
+      makeLockedOption(10, 1, '2027-01-01'),
+      makeLockedOption(20, 2, '2026-12-15'),
+    ]
+    const db = buildLockedPollMock(polls, options)
+    const result = await findNextLockedEvent(db)
+    // `findNextLockedEvent` sorts upcoming events ascending by date; today is
+    // 2026-06-10 so both are upcoming, with 2026-12-15 coming first.
+    expect(result?.option.date).toBe('2026-12-15')
+    expect(result?.title).toBe('B')
+  })
+
+  it('falls back to the most recent past locked event if none is upcoming', async () => {
+    const polls = [
+      {
+        id: 1,
+        title: 'Older',
+        slug: 'older',
+        final_option_id: 10,
+      },
+      {
+        id: 2,
+        title: 'Newer',
+        slug: 'newer',
+        final_option_id: 20,
+      },
+    ]
+    const options = [
+      makeLockedOption(10, 1, '2025-08-01'),
+      makeLockedOption(20, 2, '2026-04-01'),
+    ]
+    const db = buildLockedPollMock(polls, options)
+    const result = await findNextLockedEvent(db)
+    expect(result?.option.date).toBe('2026-04-01')
+    expect(result?.title).toBe('Newer')
+  })
+
+  it('counts an event whose date equals today as upcoming', async () => {
+    const today = '2026-06-10' // matches workspace "current date"
+    const polls = [
+      {
+        id: 1,
+        title: 'Today',
+        slug: 'today',
+        final_option_id: 42,
+      },
+    ]
+    const options = [makeLockedOption(42, 1, today)]
+    const db = buildLockedPollMock(polls, options)
+    const result = await findNextLockedEvent(db)
+    expect(result?.option.date).toBe(today)
+    expect(result?.slug).toBe('today')
+  })
+
+  it('skips polls whose final_option_id does not match any option row', async () => {
+    const polls = [
+      {
+        id: 1,
+        title: 'Stale',
+        slug: 'stale',
+        final_option_id: 999,
+      },
+    ]
+    const options: ReturnType<typeof makeLockedOption>[] = []
+    const db = buildLockedPollMock(polls, options)
+    const result = await findNextLockedEvent(db)
+    expect(result).toBeNull()
   })
 })
