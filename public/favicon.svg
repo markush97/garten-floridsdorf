@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="SV Beet &amp; Bewegung">
+  <title>SV Beet &amp; Bewegung</title>
+  <defs>
+    <!-- Subtle inner glow so the badge doesn't look flat in dark mode tabs -->
+    <radialGradient id="beetHighlight" cx="50%" cy="38%" r="55%">
+      <stop offset="0%" stop-color="#2D5239"/>
+      <stop offset="100%" stop-color="#1F3D2B"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Forest-green circular badge -->
+  <circle cx="50" cy="50" r="50" fill="url(#beetHighlight)"/>
+
+  <!-- Leaf growing from the bed, slightly off-center to suggest motion -->
+  <path d="M50 52 C 44 42, 41 32, 44 22 C 51 28, 54 40, 50 52 Z" fill="#7AB52E"/>
+  <path
+    d="M50 52 C 49 42, 49 32, 50 22"
+    stroke="#F5F0E1"
+    stroke-width="1.4"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.6"
+  />
+
+  <!-- Raised bed (front face + side to read as 3D even at 16px) -->
+  <path
+    d="M22 60 L78 60 L74 80 L26 80 Z"
+    fill="#C28A4A"
+  />
+  <!-- Bed planks -->
+  <path
+    d="M26 68 L74 68"
+    stroke="#7A4A1F"
+    stroke-width="1.6"
+    stroke-linecap="round"
+  />
+  <path d="M22 60 L78 60" stroke="#7A4A1F" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- Bed corner posts -->
+  <rect x="24" y="60" width="3" height="20" fill="#7A4A1F"/>
+  <rect x="73" y="60" width="3" height="20" fill="#7A4A1F"/>
+
+  <!-- Soil mound peeking above the bed -->
+  <ellipse cx="50" cy="58" rx="20" ry="5" fill="#5A3A1F"/>
+
+  <!-- Beet bulb nestled in the soil, peeking out -->
+  <ellipse cx="50" cy="60" rx="11" ry="6" fill="#7A1F3D"/>
+  <!-- Beet root tail -->
+  <path d="M49 66 Q48 70 50 74 Q52 70 51 66 Z" fill="#7A1F3D" opacity="0.7"/>
+</svg>
