@@ -290,6 +290,7 @@ describe('eventWithDetailsSchema', () => {
         { id: 2, event_id: 1, user_id: 3, name: 'Maria', sort_order: 0 },
       ],
       attachments: [],
+      decisions: [],
       agenda_items: [
         {
           id: 9,
@@ -352,6 +353,7 @@ describe('eventWithDetailsSchema', () => {
       planned_attendees: [],
       actual_attendees: [],
       attachments: [],
+      decisions: [],
       agenda_items: [],
     })
     expect(result.success).toBe(true)
@@ -490,5 +492,123 @@ describe('updateEventAttachmentInputSchema', () => {
 describe('MAX_ATTACHMENT_SIZE_BYTES', () => {
   it('is 20 MB', () => {
     expect(MAX_ATTACHMENT_SIZE_BYTES).toBe(20 * 1024 * 1024)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Decision contracts
+// ---------------------------------------------------------------------------
+
+import {
+  createEventDecisionInputSchema,
+  nextResolutionNumberForYear,
+  updateEventDecisionInputSchema,
+} from '../contracts/event'
+
+describe('nextResolutionNumberForYear', () => {
+  it('starts at 001 when no decisions exist', () => {
+    expect(nextResolutionNumberForYear([], 2026)).toBe('B-2026-001')
+  })
+
+  it('increments per year, ignoring other years', () => {
+    const existing = [
+      { resolution_number: 'B-2025-001' },
+      { resolution_number: 'B-2025-002' },
+      { resolution_number: 'B-2027-001' },
+    ]
+    expect(nextResolutionNumberForYear(existing, 2026)).toBe('B-2026-001')
+  })
+
+  it('picks the next integer for the same year', () => {
+    const existing = [
+      { resolution_number: 'B-2026-001' },
+      { resolution_number: 'B-2026-002' },
+      { resolution_number: 'B-2026-005' },
+    ]
+    expect(nextResolutionNumberForYear(existing, 2026)).toBe('B-2026-006')
+  })
+
+  it('zero-pads to 3 digits', () => {
+    const existing = [
+      { resolution_number: 'B-2026-009' },
+      { resolution_number: 'B-2026-010' },
+    ]
+    expect(nextResolutionNumberForYear(existing, 2026)).toBe('B-2026-011')
+  })
+})
+
+describe('createEventDecisionInputSchema', () => {
+  const valid = {
+    wording: 'Anschaffung eines Komposters zum Preis von 350 €.',
+    proposer_user_id: 3,
+    seconder_user_id: 4,
+  }
+
+  it('accepts a minimal decision with both proposers as user FKs', () => {
+    const result = createEventDecisionInputSchema.safeParse(valid)
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a free-text proposer (no FK)', () => {
+    const result = createEventDecisionInputSchema.safeParse({
+      ...valid,
+      proposer_user_id: null,
+      proposer_name: 'Oma (Gast)',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('trims whitespace in the wording and proposer names', () => {
+    const result = createEventDecisionInputSchema.safeParse({
+      ...valid,
+      wording: '  Hallo Welt.  ',
+      proposer_name: '  Oma  ',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.wording).toBe('Hallo Welt.')
+      expect(result.data.proposer_name).toBe('Oma')
+    }
+  })
+
+  it('rejects an empty wording', () => {
+    const result = createEventDecisionInputSchema.safeParse({
+      ...valid,
+      wording: '   ',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a missing proposer (no FK and no name)', () => {
+    const result = createEventDecisionInputSchema.safeParse({
+      ...valid,
+      proposer_user_id: null,
+      proposer_name: null,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a missing seconder (no FK and no name)', () => {
+    const result = createEventDecisionInputSchema.safeParse({
+      ...valid,
+      seconder_user_id: null,
+      seconder_name: null,
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('updateEventDecisionInputSchema', () => {
+  it('accepts an empty patch (no-op)', () => {
+    const result = updateEventDecisionInputSchema.safeParse({})
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects unknown fields (strict)', () => {
+    const result = updateEventDecisionInputSchema.safeParse({
+      wording: 'ok',
+      resolution_number: 'B-2026-099',
+    })
+    expect(result.success).toBe(false)
   })
 })

@@ -5,16 +5,19 @@ import type {
   CreateEventAgendaItemInput,
   CreateEventAgendaVoteInput,
   CreateEventAttendeeInput,
+  CreateEventDecisionInput,
   CreateEventInput,
   Event,
   EventAgendaVote,
   EventAttachment,
+  EventDecision,
   EventWithDetails,
   UpdateAttendeeVoteInput,
   UpdateEventAgendaItemInput,
   UpdateEventAgendaVoteInput,
   UpdateEventAttachmentInput,
   UpdateEventAttendeesInput,
+  UpdateEventDecisionInput,
   UpdateEventInput,
 } from '~func/contracts/event'
 
@@ -418,6 +421,61 @@ export function useDeleteAttachment(slug: string) {
   return useMutation({
     mutationFn: (id: number) =>
       apiClient<{ ok: boolean }>(`/admin/events/${slug}/attachments/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+// ── Decisions / Beschlüsse ────────────────────────────────────────────────
+
+export function useCreateDecision(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateEventDecisionInput) =>
+      apiClient<EventDecision>(`/admin/events/${slug}/decisions`, {
+        method: 'POST',
+        body: data,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useUpdateDecision(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number
+      data: UpdateEventDecisionInput
+    }) =>
+      apiClient<EventDecision>(`/admin/events/${slug}/decisions/${id}`, {
+        method: 'PATCH',
+        body: data,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useDeleteDecision(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<{ ok: boolean }>(`/admin/events/${slug}/decisions/${id}`, {
         method: 'DELETE',
       }),
     onSuccess: () => {

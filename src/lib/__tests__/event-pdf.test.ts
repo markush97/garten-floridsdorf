@@ -23,6 +23,7 @@ function makeEvent(partial: Partial<EventWithDetails> = {}): EventWithDetails {
     planned_attendees: [],
     actual_attendees: [],
     attachments: [],
+    decisions: [],
     agenda_items: [],
     ...partial,
   }
@@ -368,5 +369,154 @@ describe('buildPrintDocument', () => {
     // we check for the actual <section> tag instead so the assertion
     // doesn't get tripped up by the stylesheet copy.
     expect(html).not.toContain('<section class="attachments-section">')
+  })
+})
+
+describe('buildPdfSections decisions', () => {
+  const decisionWithVote = {
+    id: 1,
+    event_id: 1,
+    agenda_item_id: 9,
+    resolution_number: 'B-2026-001',
+    wording: 'Anschaffung eines Komposters zum Preis von 350 €.',
+    proposer_user_id: 3,
+    proposer_name: null,
+    seconder_user_id: 4,
+    seconder_name: null,
+    vote_id: 42,
+    result_note: null,
+    sort_order: 0,
+    created_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:00:00.000Z',
+    proposer_display: 'Maria Hinkel',
+    seconder_display: 'Tom S.',
+    vote_snapshot: {
+      id: 42,
+      question: 'Anschaffung beschließen?',
+      vote_type: 'yn' as const,
+      counting_mode: 'per_attendee' as const,
+      options: [
+        { id: 100, vote_id: 42, label: 'Ja', count: 0, sort_order: 0 },
+        { id: 101, vote_id: 42, label: 'Nein', count: 0, sort_order: 1 },
+      ],
+      attendee_votes: [
+        { attendee_id: 1, option_id: null, response: true },
+        { attendee_id: 2, option_id: null, response: true },
+        { attendee_id: 3, option_id: null, response: false },
+      ],
+    },
+  }
+  const freeTextDecision = {
+    ...decisionWithVote,
+    id: 2,
+    resolution_number: 'B-2026-002',
+    agenda_item_id: null,
+    proposer_user_id: null,
+    proposer_name: 'Oma (Gast)',
+    seconder_user_id: null,
+    seconder_name: 'Onkel Klaus',
+    proposer_display: null,
+    seconder_display: null,
+    vote_id: null,
+    vote_snapshot: null,
+    result_note: 'einstimmig angenommen',
+    sort_order: 1,
+  }
+
+  it('returns an empty body when there are no decisions', () => {
+    const sections = buildPdfSections({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    expect(sections.decisions.title).toBe('Beschlüsse')
+    expect(sections.decisions.body).toBe('')
+  })
+
+  it('renders the resolution number, wording, and proposer display', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ decisions: [freeTextDecision] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.decisions.body).toContain('B-2026-002')
+    expect(sections.decisions.body).toContain('Anschaffung')
+    expect(sections.decisions.body).toContain('Oma (Gast)')
+    expect(sections.decisions.body).toContain('Onkel Klaus')
+    expect(sections.decisions.body).toContain('einstimmig angenommen')
+  })
+
+  it('renders the linked vote tally using the snapshot', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ decisions: [decisionWithVote] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.decisions.body).toContain('Abstimmung:')
+    // 2 ja, 1 nein from the per_attendee votes
+    expect(sections.decisions.body).toContain('2 Stimmen')
+    expect(sections.decisions.body).toContain('Mehrheit:')
+    expect(sections.decisions.body).toContain('Maria Hinkel')
+  })
+
+  it('summarises the resolution numbers on the cover', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({
+        decisions: [decisionWithVote, freeTextDecision],
+      }),
+      transcriptionHtml: '',
+    })
+    expect(sections.cover.body).toContain('B-2026-001')
+    expect(sections.cover.body).toContain('B-2026-002')
+  })
+
+  it('escapes wording and captions to prevent HTML injection', () => {
+    const evil = {
+      ...decisionWithVote,
+      wording: '<script>alert(1)</script>',
+    }
+    const sections = buildPdfSections({
+      event: makeEvent({ decisions: [evil] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.decisions.body).not.toContain('<script>')
+    expect(sections.decisions.body).toContain('&lt;script&gt;')
+  })
+})
+
+describe('buildPrintDocument decisions', () => {
+  it('renders the Beschlüsse section when decisions exist', () => {
+    const decision = {
+      id: 1,
+      event_id: 1,
+      agenda_item_id: null,
+      resolution_number: 'B-2026-001',
+      wording: 'Test.',
+      proposer_user_id: null,
+      proposer_name: 'Oma',
+      seconder_user_id: null,
+      seconder_name: 'Klaus',
+      vote_id: null,
+      result_note: null,
+      sort_order: 0,
+      created_at: '2026-06-10T00:00:00.000Z',
+      updated_at: '2026-06-10T00:00:00.000Z',
+      proposer_display: null,
+      seconder_display: null,
+      vote_snapshot: null,
+    }
+    const html = buildPrintDocument({
+      event: makeEvent({ decisions: [decision] }),
+      transcriptionHtml: '',
+    })
+    // Check the actual <section> tag rather than the CSS class name
+    // (the stylesheet also contains "decisions-section").
+    expect(html).toContain('<section class="decisions-section">')
+    expect(html).toContain('B-2026-001')
+  })
+
+  it('omits the Beschlüsse section when no decisions exist', () => {
+    const html = buildPrintDocument({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    expect(html).not.toContain('<section class="decisions-section">')
   })
 })

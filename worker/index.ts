@@ -12,6 +12,7 @@ import {
   createEventAgendaItemInputSchema,
   createEventAgendaVoteInputSchema,
   createEventAttendeeInputSchema,
+  createEventDecisionInputSchema,
   createEventInputSchema,
   isAllowedAttachmentContentType,
   MAX_ATTACHMENT_SIZE_BYTES,
@@ -21,6 +22,7 @@ import {
   updateEventAgendaVoteInputSchema,
   updateEventAttachmentInputSchema,
   updateEventAttendeesInputSchema,
+  updateEventDecisionInputSchema,
   updateEventInputSchema,
 } from '../functions/contracts/event'
 import {
@@ -39,11 +41,13 @@ import {
   addAgendaItem,
   addAgendaVote,
   addAttachment,
+  addDecision,
   addPlannedAttendee,
   createEvent,
   deleteAgendaItem,
   deleteAgendaVote,
   deleteAttachment,
+  deleteDecision,
   deleteEvent,
   findAttachmentOrThrow,
   findEventBySlugOrThrow,
@@ -59,6 +63,7 @@ import {
   updateAgendaItem,
   updateAgendaVote,
   updateAttachment,
+  updateDecision,
   updateEvent,
 } from '../functions/db/queries/events'
 import {
@@ -698,6 +703,50 @@ app.delete('/admin/events/:slug/attachments/:id', async (c) => {
   void (await findEventBySlugOrThrow(createDb(c.env.DB), c.req.param('slug')))
   const db = createDb(c.env.DB)
   await deleteAttachment(db, c.env.ATTACHMENTS, id)
+  return c.json({ ok: true })
+})
+
+// ── Decisions / Beschlüsse ───────────────────────────────────────────────
+
+app.post('/admin/events/:slug/decisions', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = createEventDecisionInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const decision = await addDecision(db, event.id, parsed.data)
+  return c.json(decision, 201)
+})
+
+app.patch('/admin/events/:slug/decisions/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = updateEventDecisionInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const decision = await updateDecision(db, event.id, id, parsed.data)
+  return c.json(decision)
+})
+
+app.delete('/admin/events/:slug/decisions/:id', async (c) => {
+  const slug = c.req.param('slug')
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await deleteDecision(db, event.id, id)
   return c.json({ ok: true })
 })
 

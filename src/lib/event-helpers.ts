@@ -1,6 +1,7 @@
 import type {
+  AgendaCountingMode,
+  AgendaVoteType,
   EventAgendaItem,
-  EventAgendaVote,
   EventAgendaVoteOption,
 } from '~func/contracts/event'
 
@@ -34,13 +35,25 @@ export type VoteSummary = {
 }
 
 /**
+ * The minimum fields of a vote needed by `summarizeVote`. We accept a
+ * narrower shape than `EventAgendaVote` so the snapshot carried in a
+ * `vote_snapshot` field (which only ships the tally-relevant columns)
+ * can be tallied without a server round-trip.
+ */
+export type SummarizableVote = {
+  vote_type: AgendaVoteType
+  counting_mode: AgendaCountingMode
+  options: EventAgendaVoteOption[]
+}
+
+/**
  * Computes the result of a vote. For `per_attendee` votes the attendee
  * count wins (the stored `count` column stays at zero — the join table
  * is the source of truth). For `anonymous` votes the stored `count` is
  * the answer.
  */
 export function summarizeVote(
-  vote: EventAgendaVote,
+  vote: SummarizableVote,
   attendeeVotes: readonly AttendeeVoteRow[] = [],
 ): VoteSummary {
   const options = [...vote.options].sort((a, b) => {

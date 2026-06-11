@@ -243,12 +243,151 @@ export const updateEventAttachmentInputSchema = z
   })
   .strict()
 
+// ── Decisions / Beschlüsse ───────────────────────────────────────────────
+
+/**
+ * Computes a resolution number suffix for a given year. Exported so
+ * the worker can pick the next number when the user lands on the
+ * "new decision" form — no round-trip needed to know the next id.
+ */
+export function nextResolutionNumberForYear(
+  existing: ReadonlyArray<{ resolution_number: string }>,
+  year: number,
+): string {
+  const prefix = `B-${year}-`
+  let max = 0
+  for (const row of existing) {
+    if (!row.resolution_number.startsWith(prefix)) continue
+    const tail = row.resolution_number.slice(prefix.length)
+    const n = Number.parseInt(tail, 10)
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  const next = (max + 1).toString().padStart(3, '0')
+  return `${prefix}${next}`
+}
+
+export const eventDecisionSchema = z.object({
+  id: z.number(),
+  event_id: z.number(),
+  agenda_item_id: z.number().nullable(),
+  resolution_number: z.string(),
+  wording: z.string(),
+  proposer_user_id: z.number().nullable(),
+  proposer_name: z.string().nullable(),
+  seconder_user_id: z.number().nullable(),
+  seconder_name: z.string().nullable(),
+  vote_id: z.number().nullable(),
+  result_note: z.string().nullable(),
+  sort_order: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  // Server-computed display strings: the rendered proposer / seconder
+  // name (user's full name if a FK is set, otherwise the free-text
+  // fallback). The client never has to do the join.
+  proposer_display: z.string().nullable(),
+  seconder_display: z.string().nullable(),
+  // Live snapshot of the linked vote at read time. Null when the
+  // decision has no `vote_id` or the vote was deleted. The PDF
+  // renders from this snapshot. We include the per-attendee join
+  // rows so `summarizeVote` can compute the per_attendee tally
+  // without a separate round-trip.
+  vote_snapshot: z
+    .object({
+      id: z.number(),
+      question: z.string(),
+      vote_type: agendaVoteTypeSchema,
+      counting_mode: agendaCountingModeSchema,
+      options: z.array(eventAgendaVoteOptionSchema),
+      attendee_votes: z.array(
+        z.object({
+          attendee_id: z.number(),
+          option_id: z.number().nullable(),
+          response: z.boolean().nullable(),
+        }),
+      ),
+    })
+    .nullable(),
+})
+
+export const createEventDecisionInputSchema = z
+  .object({
+    agenda_item_id: z.number().int().positive().nullable().optional(),
+    wording: z.string().trim().min(1).max(2000),
+    proposer_user_id: z.number().int().positive().nullable().optional(),
+    proposer_name: z
+      .preprocess(
+        (v) => (v == null ? '' : v),
+        z
+          .string()
+          .max(200)
+          .transform((v) => v.trim())
+          .transform((v) => (v.length === 0 ? null : v)),
+      )
+      .optional(),
+    seconder_user_id: z.number().int().positive().nullable().optional(),
+    seconder_name: z
+      .preprocess(
+        (v) => (v == null ? '' : v),
+        z
+          .string()
+          .max(200)
+          .transform((v) => v.trim())
+          .transform((v) => (v.length === 0 ? null : v)),
+      )
+      .optional(),
+    vote_id: z.number().int().positive().nullable().optional(),
+    result_note: optionalLongText,
+  })
+  .superRefine((val, ctx) => {
+    // At least one of proposer_user_id / proposer_name must be
+    // supplied, same for seconder. The PDF needs to render
+    // something. We tolerate either form.
+    const hasProposer = val.proposer_user_id != null || val.proposer_name
+    if (!hasProposer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['proposer_name'],
+        message: 'Bitte Antragsteller:in angeben.',
+      })
+    }
+    const hasSeconder = val.seconder_user_id != null || val.seconder_name
+    if (!hasSeconder) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['seconder_name'],
+        message: 'Bitte zweite Person angeben.',
+      })
+    }
+  })
+
+export const updateEventDecisionInputSchema = z
+  .object({
+    agenda_item_id: z.number().int().positive().nullable().optional(),
+    wording: z.string().trim().min(1).max(2000).optional(),
+    proposer_user_id: z.number().int().positive().nullable().optional(),
+    proposer_name: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    seconder_user_id: z.number().int().positive().nullable().optional(),
+    seconder_name: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    vote_id: z.number().int().positive().nullable().optional(),
+    result_note: optionalLongText,
+  })
+  .strict()
+
 // ── Composite "with details" response ────────────────────────────────────
 
 export const eventWithDetailsSchema = eventSchema.extend({
   planned_attendees: z.array(eventAttendeeSchema),
   actual_attendees: z.array(eventAttendeeSchema),
   attachments: z.array(eventAttachmentSchema),
+  decisions: z.array(eventDecisionSchema),
   agenda_items: z.array(
     eventAgendaItemSchema.extend({
       votes: z.array(eventAgendaVoteSchema),
@@ -294,4 +433,11 @@ export type EventWithDetails = z.infer<typeof eventWithDetailsSchema>
 export type EventAttachment = z.infer<typeof eventAttachmentSchema>
 export type UpdateEventAttachmentInput = z.infer<
   typeof updateEventAttachmentInputSchema
+>
+export type EventDecision = z.infer<typeof eventDecisionSchema>
+export type CreateEventDecisionInput = z.infer<
+  typeof createEventDecisionInputSchema
+>
+export type UpdateEventDecisionInput = z.infer<
+  typeof updateEventDecisionInputSchema
 >

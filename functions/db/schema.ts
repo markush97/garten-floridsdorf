@@ -227,3 +227,42 @@ export const event_attachments = sqliteTable('event_attachments', {
   ),
   created_at: text('created_at').notNull(),
 })
+
+/**
+ * A formal decision / Beschluss adopted at the event. The resolution
+ * number ("B-2026-001") is auto-assigned per calendar year. The
+ * proposer and seconder are stored as either a user FK (preferred,
+ * rendered with the user's full name) or a free-text name fallback
+ * (for guests / one-time attendees not in the users table). An
+ * optional `vote_id` links the decision to a specific agenda vote;
+ * the PDF reads the vote state live at render time, not via a copy.
+ */
+export const event_decisions = sqliteTable('event_decisions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  agenda_item_id: integer('agenda_item_id').references(
+    () => event_agenda_items.id,
+    { onDelete: 'set null' },
+  ),
+  // "B-2026-001" — auto-assigned by the server. Unique on its own so
+  // a copy-paste of a historical decision can't collide accidentally.
+  resolution_number: text('resolution_number').notNull().unique(),
+  wording: text('wording').notNull(),
+  proposer_user_id: integer('proposer_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  proposer_name: text('proposer_name'),
+  seconder_user_id: integer('seconder_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  seconder_name: text('seconder_name'),
+  vote_id: integer('vote_id').references(() => event_agenda_votes.id, {
+    onDelete: 'set null',
+  }),
+  result_note: text('result_note'),
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})

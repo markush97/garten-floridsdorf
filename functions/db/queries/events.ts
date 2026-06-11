@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { nowUtc, toVienna } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
@@ -7,16 +7,20 @@ import {
   type CreateEventAgendaItemInput,
   type CreateEventAgendaVoteInput,
   type CreateEventAttendeeInput,
+  type CreateEventDecisionInput,
   type CreateEventInput,
   type EventAttachment,
+  type EventDecision,
   type EventWithDetails,
   isAllowedAttachmentContentType,
   MAX_ATTACHMENT_SIZE_BYTES,
+  nextResolutionNumberForYear,
   type UpdateAttendeeVoteInput,
   type UpdateEventAgendaItemInput,
   type UpdateEventAgendaVoteInput,
   type UpdateEventAttachmentInput,
   type UpdateEventAttendeesInput,
+  type UpdateEventDecisionInput,
   type UpdateEventInput,
 } from '../../contracts/event'
 import {
@@ -26,8 +30,10 @@ import {
   event_agenda_votes,
   event_attachments,
   event_attendee_votes,
+  event_decisions,
   event_planned_attendees,
   events,
+  users,
 } from '../schema'
 
 function normalizeOptional(value: string | null | undefined): string | null {
@@ -228,11 +234,156 @@ export async function findEventWithDetails(
     }
   }
 
+  // Decisions: load rows + their proposer/seconder users + linked votes
+  // in three queries, then merge in JS. The display strings are
+  // computed server-side so the client never has to do a user join.
+  const decisionRows = await db
+    .select()
+    .from(event_decisions)
+    .where(eq(event_decisions.event_id, id))
+    .orderBy(asc(event_decisions.sort_order), asc(event_decisions.id))
+    .all()
+
+  const userIds = new Set<number>()
+  const linkedVoteIds = new Set<number>()
+  for (const d of decisionRows) {
+    if (d.proposer_user_id !== null) userIds.add(d.proposer_user_id)
+    if (d.seconder_user_id !== null) userIds.add(d.seconder_user_id)
+    if (d.vote_id !== null) linkedVoteIds.add(d.vote_id)
+  }
+  const userById = new Map<number, { first_name: string; last_name: string }>()
+  if (userIds.size > 0) {
+    const rows = await db
+      .select({
+        id: users.id,
+        first_name: users.first_name,
+        last_name: users.last_name,
+      })
+      .from(users)
+      .where(inArray(users.id, [...userIds]))
+      .all()
+    for (const u of rows) userById.set(u.id, u)
+  }
+
+  const linkedVotes = new Map<
+    number,
+    {
+      id: number
+      agenda_item_id: number
+      question: string
+      vote_type: 'yn' | 'options'
+      counting_mode: 'anonymous' | 'per_attendee'
+    }
+  >()
+  if (linkedVoteIds.size > 0) {
+    const rows = await db
+      .select({
+        id: event_agenda_votes.id,
+        agenda_item_id: event_agenda_votes.agenda_item_id,
+        question: event_agenda_votes.question,
+        vote_type: event_agenda_votes.vote_type,
+        counting_mode: event_agenda_votes.counting_mode,
+      })
+      .from(event_agenda_votes)
+      .where(inArray(event_agenda_votes.id, [...linkedVoteIds]))
+      .all()
+    for (const v of rows) linkedVotes.set(v.id, v)
+  }
+  // Fetch the options for the linked votes (for the PDF tally).
+  const linkedVoteOptions = new Map<
+    number,
+    Array<{
+      id: number
+      vote_id: number
+      label: string
+      count: number
+      sort_order: number
+    }>
+  >()
+  if (linkedVoteIds.size > 0) {
+    const rows = await db
+      .select()
+      .from(event_agenda_vote_options)
+      .where(inArray(event_agenda_vote_options.vote_id, [...linkedVoteIds]))
+      .orderBy(
+        asc(event_agenda_vote_options.sort_order),
+        asc(event_agenda_vote_options.id),
+      )
+      .all()
+    for (const opt of rows) {
+      const list = linkedVoteOptions.get(opt.vote_id) ?? []
+      list.push(opt)
+      linkedVoteOptions.set(opt.vote_id, list)
+    }
+  }
+  // Per-attendee vote responses for the linked votes. The PDF
+  // tally uses these to compute the per_attendee count.
+  const linkedAttendeeVotes = new Map<
+    number,
+    Array<{
+      attendee_id: number
+      option_id: number | null
+      response: boolean | null
+    }>
+  >()
+  if (linkedVoteIds.size > 0) {
+    const rows = await db
+      .select({
+        vote_id: event_attendee_votes.vote_id,
+        attendee_id: event_attendee_votes.attendee_id,
+        option_id: event_attendee_votes.option_id,
+        response: event_attendee_votes.response,
+      })
+      .from(event_attendee_votes)
+      .where(inArray(event_attendee_votes.vote_id, [...linkedVoteIds]))
+      .all()
+    for (const av of rows) {
+      const list = linkedAttendeeVotes.get(av.vote_id) ?? []
+      list.push({
+        attendee_id: av.attendee_id,
+        option_id: av.option_id,
+        response: av.response,
+      })
+      linkedAttendeeVotes.set(av.vote_id, list)
+    }
+  }
+
+  const decisions: EventDecision[] = decisionRows.map((d) => {
+    const proposer =
+      d.proposer_user_id !== null ? userById.get(d.proposer_user_id) : null
+    const seconder =
+      d.seconder_user_id !== null ? userById.get(d.seconder_user_id) : null
+    const vote = d.vote_id !== null ? linkedVotes.get(d.vote_id) : null
+    const voteSnapshot = vote
+      ? {
+          id: vote.id,
+          question: vote.question,
+          vote_type: vote.vote_type,
+          counting_mode: vote.counting_mode,
+          options: linkedVoteOptions.get(vote.id) ?? [],
+          attendee_votes: linkedAttendeeVotes.get(vote.id) ?? [],
+        }
+      : null
+    return {
+      ...d,
+      proposer_display: proposer
+        ? `${proposer.first_name} ${proposer.last_name}`.trim() ||
+          d.proposer_name
+        : d.proposer_name,
+      seconder_display: seconder
+        ? `${seconder.first_name} ${seconder.last_name}`.trim() ||
+          d.seconder_name
+        : d.seconder_name,
+      vote_snapshot: voteSnapshot,
+    }
+  })
+
   return {
     ...event,
     planned_attendees: planned,
     actual_attendees: actual,
     attachments: eventLevelAttachments,
+    decisions,
     agenda_items: agenda.map((item) => ({
       ...item,
       votes: (votesByAgenda.get(item.id) ?? []).map((vote) => ({
@@ -982,4 +1133,244 @@ export async function listEventAttachments(db: Database, eventId: number) {
     .where(eq(event_attachments.event_id, eventId))
     .orderBy(asc(event_attachments.created_at))
     .all()
+}
+
+// ── Decisions / Beschlüsse ───────────────────────────────────────────────
+
+/**
+ * Computes the next resolution number for an event's calendar year.
+ * We look at every decision in the same year (across all events) and
+ * pick the max suffix + 1. The number is globally unique by virtue of
+ * the unique index on `event_decisions.resolution_number`.
+ */
+async function nextDecisionResolutionNumber(
+  db: Database,
+  eventId: number,
+): Promise<string> {
+  // Use the event's `scheduled_date` to determine the year so a
+  // late-recorded Beschluss still gets the right year.
+  const event = await findEventOrThrow(db, eventId)
+  const year = Number.parseInt(event.scheduled_date.slice(0, 4), 10)
+  const allRows = await db
+    .select({ resolution_number: event_decisions.resolution_number })
+    .from(event_decisions)
+    .all()
+  return nextResolutionNumberForYear(
+    allRows,
+    Number.isFinite(year) ? year : new Date().getUTCFullYear(),
+  )
+}
+
+export async function addDecision(
+  db: Database,
+  eventId: number,
+  input: CreateEventDecisionInput,
+) {
+  await findEventOrThrow(db, eventId)
+  if (input.agenda_item_id !== undefined && input.agenda_item_id !== null) {
+    const item = await db
+      .select({
+        id: event_agenda_items.id,
+        event_id: event_agenda_items.event_id,
+      })
+      .from(event_agenda_items)
+      .where(eq(event_agenda_items.id, input.agenda_item_id))
+      .get()
+    if (!item || item.event_id !== eventId) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Agendapunkt gehört nicht zu diesem Termin.',
+        400,
+      )
+    }
+  }
+  if (input.vote_id !== undefined && input.vote_id !== null) {
+    const vote = await db
+      .select({
+        id: event_agenda_votes.id,
+        agenda_item_id: event_agenda_votes.agenda_item_id,
+      })
+      .from(event_agenda_votes)
+      .where(eq(event_agenda_votes.id, input.vote_id))
+      .get()
+    if (!vote) {
+      throw new AppError('VALIDATION_ERROR', 'Abstimmung nicht gefunden.', 400)
+    }
+    // Verify the vote belongs to an agenda item in this event.
+    const item = await db
+      .select({ event_id: event_agenda_items.event_id })
+      .from(event_agenda_items)
+      .where(eq(event_agenda_items.id, vote.agenda_item_id))
+      .get()
+    if (!item || item.event_id !== eventId) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Abstimmung gehört nicht zu diesem Termin.',
+        400,
+      )
+    }
+  }
+
+  const now = nowUtc()
+  const resolutionNumber = await nextDecisionResolutionNumber(db, eventId)
+
+  // Sort order: append to the end of the existing list.
+  const maxRow = await db
+    .select({
+      value: sql<number>`COALESCE(MAX(${event_decisions.sort_order}), -1)`,
+    })
+    .from(event_decisions)
+    .where(eq(event_decisions.event_id, eventId))
+    .get()
+  const sortOrder = (maxRow?.value ?? -1) + 1
+
+  const inserted = await db
+    .insert(event_decisions)
+    .values({
+      event_id: eventId,
+      agenda_item_id: input.agenda_item_id ?? null,
+      resolution_number: resolutionNumber,
+      wording: input.wording.trim(),
+      proposer_user_id: input.proposer_user_id ?? null,
+      proposer_name: input.proposer_name ?? null,
+      seconder_user_id: input.seconder_user_id ?? null,
+      seconder_name: input.seconder_name ?? null,
+      vote_id: input.vote_id ?? null,
+      result_note: normalizeOptional(input.result_note),
+      sort_order: sortOrder,
+      created_at: now,
+      updated_at: now,
+    })
+    .returning()
+  const row = inserted[0]
+  if (!row) {
+    throw new AppError('INTERNAL_ERROR', 'Fehler beim Anlegen', 500)
+  }
+  return row
+}
+
+export async function findDecisionOrThrow(db: Database, id: number) {
+  const row = await db
+    .select()
+    .from(event_decisions)
+    .where(eq(event_decisions.id, id))
+    .get()
+  if (!row) {
+    throw new AppError('NOT_FOUND', 'Beschluss nicht gefunden', 404)
+  }
+  return row
+}
+
+export async function updateDecision(
+  db: Database,
+  eventId: number,
+  id: number,
+  input: UpdateEventDecisionInput,
+) {
+  const current = await findDecisionOrThrow(db, id)
+  if (current.event_id !== eventId) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Beschluss gehört nicht zu diesem Termin.',
+      400,
+    )
+  }
+  const updates: Partial<typeof event_decisions.$inferInsert> = {
+    updated_at: nowUtc(),
+  }
+  if (input.wording !== undefined) {
+    updates.wording = input.wording.trim()
+  }
+  if (input.agenda_item_id !== undefined) {
+    if (input.agenda_item_id !== null) {
+      const item = await db
+        .select({
+          id: event_agenda_items.id,
+          event_id: event_agenda_items.event_id,
+        })
+        .from(event_agenda_items)
+        .where(eq(event_agenda_items.id, input.agenda_item_id))
+        .get()
+      if (!item || item.event_id !== eventId) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Agendapunkt gehört nicht zu diesem Termin.',
+          400,
+        )
+      }
+    }
+    updates.agenda_item_id = input.agenda_item_id
+  }
+  if (input.proposer_user_id !== undefined) {
+    updates.proposer_user_id = input.proposer_user_id
+  }
+  if (input.proposer_name !== undefined) {
+    updates.proposer_name = input.proposer_name
+  }
+  if (input.seconder_user_id !== undefined) {
+    updates.seconder_user_id = input.seconder_user_id
+  }
+  if (input.seconder_name !== undefined) {
+    updates.seconder_name = input.seconder_name
+  }
+  if (input.vote_id !== undefined) {
+    if (input.vote_id !== null) {
+      const vote = await db
+        .select({
+          id: event_agenda_votes.id,
+          agenda_item_id: event_agenda_votes.agenda_item_id,
+        })
+        .from(event_agenda_votes)
+        .where(eq(event_agenda_votes.id, input.vote_id))
+        .get()
+      if (!vote) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Abstimmung nicht gefunden.',
+          400,
+        )
+      }
+      const item = await db
+        .select({ event_id: event_agenda_items.event_id })
+        .from(event_agenda_items)
+        .where(eq(event_agenda_items.id, vote.agenda_item_id))
+        .get()
+      if (!item || item.event_id !== eventId) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Abstimmung gehört nicht zu diesem Termin.',
+          400,
+        )
+      }
+    }
+    updates.vote_id = input.vote_id
+  }
+  if (input.result_note !== undefined) {
+    updates.result_note = normalizeOptional(input.result_note)
+  }
+  if (Object.keys(updates).length === 1) {
+    // Only `updated_at` is set — nothing else changed.
+    return current
+  }
+  await db
+    .update(event_decisions)
+    .set(updates)
+    .where(eq(event_decisions.id, id))
+  return findDecisionOrThrow(db, id)
+}
+
+export async function deleteDecision(
+  db: Database,
+  eventId: number,
+  id: number,
+) {
+  const current = await findDecisionOrThrow(db, id)
+  if (current.event_id !== eventId) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Beschluss gehört nicht zu diesem Termin.',
+      400,
+    )
+  }
+  await db.delete(event_decisions).where(eq(event_decisions.id, id))
 }

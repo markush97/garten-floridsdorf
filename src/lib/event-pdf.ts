@@ -1,4 +1,5 @@
 import type { EventWithDetails } from '~func/contracts/event'
+import { summarizeVote } from './event-helpers'
 
 /**
  * A single entry in the auto-generated table of contents. `level` is
@@ -156,12 +157,14 @@ export type PdfContext = {
 
 /**
  * Returns the data needed to render the print/PDF view: a title, a list
- * of sections (cover, TOC, agenda, attachments, transcription), and a flat TOC.
+ * of sections (cover, TOC, agenda, decisions, attachments, transcription),
+ * and a flat TOC.
  */
 export function buildPdfSections(ctx: PdfContext): {
   cover: PrintSection
   toc: TocEntry[]
   agenda: PrintSection
+  decisions: PrintSection
   attachments: PrintSection
   transcription: PrintSection
 } {
@@ -193,18 +196,100 @@ export function buildPdfSections(ctx: PdfContext): {
       .join(', ')
     meta.push(`<dt>Geplant</dt><dd>${names}</dd>`)
   }
+  if (event.decisions.length > 0) {
+    const numbers = event.decisions
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+      .map((d) => escapeHtml(d.resolution_number))
+      .join(', ')
+    meta.push(`<dt>Beschlüsse</dt><dd>${numbers}</dd>`)
+  }
   const coverBody = `${coverLines.join('')}<dl class="cover-meta">${meta.join('')}</dl>`
 
   return {
     cover: { title: 'Termin', body: coverBody },
     toc: extractToc(transcriptionHtml),
     agenda: buildAgendaSection(event),
+    decisions: buildDecisionsSection(event),
     attachments: buildAttachmentsSection(event, ctx.imageDataUrls),
     transcription: {
       title: 'Protokoll',
       body: transcriptionHtml || '<p class="empty">Kein Protokoll erfasst.</p>',
     },
   }
+}
+
+/**
+ * Renders the formal "Beschlüsse" section. Each decision shows its
+ * resolution number, the exact wording, the proposer / seconder
+ * (using the server-computed display strings so the PDF doesn't need
+ * a users join), the linked vote tally when one is set, and the
+ * optional result note. The section is omitted entirely when the
+ * event has no decisions so the cover summary doesn't get a "0"
+ * counter.
+ */
+function buildDecisionsSection(event: EventWithDetails): PrintSection {
+  const decisions = [...event.decisions].sort(
+    (a, b) => a.sort_order - b.sort_order || a.id - b.id,
+  )
+  if (decisions.length === 0) return { title: 'Beschlüsse', body: '' }
+
+  const items = decisions.map((d) => {
+    const proposer = d.proposer_display ?? d.proposer_name
+    const seconder = d.seconder_display ?? d.seconder_name
+    const tally = d.vote_snapshot
+      ? summarizeVote(d.vote_snapshot, d.vote_snapshot.attendee_votes)
+      : null
+    const tallyHtml =
+      tally && d.vote_snapshot
+        ? renderDecisionTally(d.vote_snapshot.question, tally)
+        : ''
+    return `<article class="decision">
+      <header class="decision-head">
+        <span class="decision-number">${escapeHtml(d.resolution_number)}</span>
+      </header>
+      <p class="decision-wording">${escapeHtml(d.wording)}</p>
+      <dl class="decision-meta">
+        <dt>Antragsteller:in</dt><dd>${escapeHtml(proposer ?? '–')}</dd>
+        <dt>Zweite Person</dt><dd>${escapeHtml(seconder ?? '–')}</dd>
+      </dl>
+      ${tallyHtml}
+      ${d.result_note ? `<p class="decision-note">${escapeHtml(d.result_note)}</p>` : ''}
+    </article>`
+  })
+
+  return {
+    title: 'Beschlüsse',
+    body: `<div class="decisions-list">${items.join('')}</div>`,
+  }
+}
+
+/**
+ * Renders the inline vote tally for a decision. Reuses `summarizeVote`
+ * from `event-helpers` so the per-decision tallies match the
+ * editor's read view exactly.
+ */
+function renderDecisionTally(
+  question: string,
+  tally: ReturnType<typeof summarizeVote>,
+): string {
+  if (tally.totalCount === 0) {
+    return `<p class="decision-tally-empty">Abstimmung noch nicht ausgezählt.</p>`
+  }
+  const tallyLines = tally.tallies
+    .map(
+      (t) =>
+        `<li><span class="tally-label">${escapeHtml(t.option.label)}</span><span class="tally-count">${t.count}</span></li>`,
+    )
+    .join('')
+  const leading = tally.leadingLabel
+    ? `<p class="decision-tally-leader">Mehrheit: <strong>${escapeHtml(tally.leadingLabel)}</strong> (${tally.leadingCount} Stimmen)</p>`
+    : `<p class="decision-tally-leader">Stimmengleichstand (${tally.leadingCount} : ${tally.leadingCount}).</p>`
+  return `<div class="decision-tally">
+    <p class="decision-tally-question">Abstimmung: ${escapeHtml(question)}</p>
+    <ul class="tally">${tallyLines}</ul>
+    ${leading}
+  </div>`
 }
 
 /**
@@ -293,6 +378,12 @@ export function buildPrintDocument(ctx: PdfContext): string {
   const sections = buildPdfSections(ctx)
   const event = ctx.event
   const tocHtml = renderToc(sections.toc)
+  const decisionsHtml = sections.decisions.body
+    ? `<section class="decisions-section">
+        <h2>${escapeHtml(sections.decisions.title)}</h2>
+        ${sections.decisions.body}
+      </section>`
+    : ''
   const attachmentsHtml = sections.attachments.body
     ? `<section class="attachments-section">
         <h2>${escapeHtml(sections.attachments.title)}</h2>
@@ -318,6 +409,7 @@ export function buildPrintDocument(ctx: PdfContext): string {
         <h2>${escapeHtml(sections.agenda.title)}</h2>
         ${sections.agenda.body}
       </section>
+      ${decisionsHtml}
       ${attachmentsHtml}
       <section class="transcription">
         <h2>${escapeHtml(sections.transcription.title)}</h2>
@@ -372,6 +464,25 @@ html, body { margin: 0; padding: 0; color: #1f3d2b; font-family: 'Inter', system
 .prose-content li { margin: 0.15rem 0; }
 .prose-content .empty { color: #2d5239; font-style: italic; }
 .attachments-section h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: #1f3d2b; margin: 1.5rem 0 0.5rem; page-break-after: avoid; }
+.decisions-section h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: #1f3d2b; margin: 1.5rem 0 0.5rem; page-break-after: avoid; }
+.decisions-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.decision { padding: 0.75rem 0; border-bottom: 1px solid #e7dfc9; page-break-inside: avoid; }
+.decision:last-child { border-bottom: 0; }
+.decision-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.decision-number { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; background: #1f3d2b; color: #f5f0e1; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; }
+.decision-wording { white-space: pre-line; margin: 0.2rem 0 0.5rem; font-size: 0.95rem; }
+.decision-meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.75rem; margin: 0.25rem 0 0; font-size: 0.85rem; }
+.decision-meta dt { font-weight: 600; color: #2d5239; }
+.decision-meta dd { margin: 0; }
+.decision-tally { margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #f5f0e1; border-radius: 0.5rem; font-size: 0.85rem; }
+.decision-tally-question { font-weight: 600; margin: 0 0 0.4rem; }
+.decision-tally .tally { list-style: none; padding: 0; margin: 0 0 0.4rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.decision-tally .tally li { display: inline-flex; align-items: baseline; gap: 0.25rem; }
+.decision-tally .tally-label { color: #2d5239; }
+.decision-tally .tally-count { font-weight: 700; }
+.decision-tally-leader { margin: 0; }
+.decision-tally-empty { margin: 0; font-style: italic; color: #2d5239; }
+.decision-note { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; background: #f5f0e1; border-left: 3px solid #1f3d2b; font-size: 0.85rem; white-space: pre-line; }
 .attachments-section h3 { font-family: 'Fraunces', Georgia, serif; font-size: 1.05rem; color: #1f3d2b; margin: 1rem 0 0.4rem; page-break-after: avoid; }
 .attachments-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
 .attachment { padding: 0.5rem 0; page-break-inside: avoid; }

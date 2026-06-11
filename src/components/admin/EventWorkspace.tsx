@@ -10,6 +10,7 @@ import type { EventWithDetails, UpdateEventInput } from '~func/contracts/event'
 import AgendaPanel from './AgendaPanel'
 import AttachmentUploader from './AttachmentUploader'
 import AttendeesPanel from './AttendeesPanel'
+import DecisionsPanel from './DecisionsPanel'
 import EventPdfButton from './EventPdfButton'
 
 const FIELD =
@@ -54,6 +55,8 @@ export default function EventWorkspace({
       <AgendaPanel event={event} />
       <Separator />
       <AttachmentsSection event={event} />
+      <Separator />
+      <DecisionsPanel event={event} />
       <Separator />
       <ProtocolSection
         event={event}
