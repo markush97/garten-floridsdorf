@@ -7,10 +7,12 @@ import type {
   CreateEventAttendeeInput,
   CreateEventDecisionInput,
   CreateEventInput,
+  CreateEventTaskInput,
   Event,
   EventAgendaVote,
   EventAttachment,
   EventDecision,
+  EventTask,
   EventWithDetails,
   UpdateAttendeeVoteInput,
   UpdateEventAgendaItemInput,
@@ -19,6 +21,7 @@ import type {
   UpdateEventAttendeesInput,
   UpdateEventDecisionInput,
   UpdateEventInput,
+  UpdateEventTaskInput,
 } from '~func/contracts/event'
 
 export function useAdminEvents() {
@@ -481,6 +484,98 @@ export function useDeleteDecision(slug: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+// ── Tasks / Aufgaben ────────────────────────────────────────────────────────
+
+/**
+ * Loads the open tasks from the most recent prior event that the
+ * admin can carry over into this one. Used to render the "Aus dem
+ * letzten Treffen mitgenommen" panel above the active task list.
+ */
+export function useCarryOverCandidates(slug: string, enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: [...queryKeys.events.detail(slug), 'carry-over'] as const,
+    queryFn: () =>
+      apiClient<
+        Array<{
+          id: number
+          event_id: number
+          title: string
+          owner_user_id: number | null
+          owner_name: string | null
+          due_date: string | null
+          status: 'open' | 'done'
+        }>
+      >(`/admin/events/${slug}/tasks/carry-over-candidates`),
+  })
+}
+
+export function useCreateTask(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateEventTaskInput) =>
+      apiClient<EventTask>(`/admin/events/${slug}/tasks`, {
+        method: 'POST',
+        body: data,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useUpdateTask(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateEventTaskInput }) =>
+      apiClient<EventTask>(`/admin/events/${slug}/tasks/${id}`, {
+        method: 'PATCH',
+        body: data,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useDeleteTask(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<{ ok: boolean }>(`/admin/events/${slug}/tasks/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useCarryOverTask(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (fromTaskId: number) =>
+      apiClient<EventTask>(`/admin/events/${slug}/tasks/carry-over`, {
+        method: 'POST',
+        body: { from_task_id: fromTaskId },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: [...queryKeys.events.detail(slug), 'carry-over'],
       })
     },
   })

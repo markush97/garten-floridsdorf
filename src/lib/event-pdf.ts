@@ -165,6 +165,7 @@ export function buildPdfSections(ctx: PdfContext): {
   toc: TocEntry[]
   agenda: PrintSection
   decisions: PrintSection
+  tasks: PrintSection
   attachments: PrintSection
   transcription: PrintSection
 } {
@@ -204,6 +205,14 @@ export function buildPdfSections(ctx: PdfContext): {
       .join(', ')
     meta.push(`<dt>Beschlüsse</dt><dd>${numbers}</dd>`)
   }
+  if (event.tasks.length > 0) {
+    const openTasks = event.tasks.filter((t) => t.status === 'open').length
+    const carriedOver = event.tasks.filter((t) => t.is_carried_over).length
+    const taskSummary = `${openTasks} offen`
+    const carriedNote =
+      carriedOver > 0 ? ` · ${carriedOver} aus dem letzten Treffen` : ''
+    meta.push(`<dt>Aufgaben</dt><dd>${taskSummary}${carriedNote}</dd>`)
+  }
   const coverBody = `${coverLines.join('')}<dl class="cover-meta">${meta.join('')}</dl>`
 
   return {
@@ -211,6 +220,7 @@ export function buildPdfSections(ctx: PdfContext): {
     toc: extractToc(transcriptionHtml),
     agenda: buildAgendaSection(event),
     decisions: buildDecisionsSection(event),
+    tasks: buildTasksSection(event),
     attachments: buildAttachmentsSection(event, ctx.imageDataUrls),
     transcription: {
       title: 'Protokoll',
@@ -290,6 +300,69 @@ function renderDecisionTally(
     <ul class="tally">${tallyLines}</ul>
     ${leading}
   </div>`
+}
+
+/**
+ * Renders the "Aufgaben" section. Open tasks come first (sorted
+ * by due date where set, then by sort_order), followed by done
+ * tasks. Each row shows the title, owner, optional due date, and
+ * a "aus dem letzten Treffen" badge for carried-over tasks.
+ */
+function buildTasksSection(event: EventWithDetails): PrintSection {
+  const sorted = [...event.tasks].sort(
+    (a, b) => a.sort_order - b.sort_order || a.id - b.id,
+  )
+  if (sorted.length === 0) return { title: 'Aufgaben', body: '' }
+
+  const open = sorted.filter((t) => t.status === 'open')
+  const done = sorted.filter((t) => t.status === 'done')
+
+  function renderRow(task: EventWithDetails['tasks'][number]): string {
+    const owner = task.owner_display ?? task.owner_name
+    const dueBadge = task.due_date
+      ? `<span class="task-due">bis ${escapeHtml(formatGermanDate(task.due_date))}</span>`
+      : ''
+    const carriedBadge = task.is_carried_over
+      ? '<span class="task-carried">aus dem letzten Treffen</span>'
+      : ''
+    const notesHtml = task.notes
+      ? `<p class="task-notes">${escapeHtml(task.notes)}</p>`
+      : ''
+    return `<li class="task task-${task.status}">
+      <p class="task-title">${escapeHtml(task.title)}</p>
+      <p class="task-meta">
+        <span class="task-owner">${escapeHtml(owner ?? '–')}</span>${dueBadge}${carriedBadge}
+      </p>
+      ${notesHtml}
+    </li>`
+  }
+
+  const groups: string[] = []
+  if (open.length > 0) {
+    groups.push(
+      `<h3>Offen (${open.length})</h3><ul class="tasks-list">${open.map(renderRow).join('')}</ul>`,
+    )
+  }
+  if (done.length > 0) {
+    groups.push(
+      `<h3>Erledigt (${done.length})</h3><ul class="tasks-list tasks-list-done">${done.map(renderRow).join('')}</ul>`,
+    )
+  }
+  return { title: 'Aufgaben', body: groups.join('') }
+}
+
+/**
+ * Formats a YYYY-MM-DD string as a German short date ("15.06.2026").
+ * The schema validates the format, so a plain Date() parse works.
+ */
+function formatGermanDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('de-DE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
 }
 
 /**
@@ -384,6 +457,12 @@ export function buildPrintDocument(ctx: PdfContext): string {
         ${sections.decisions.body}
       </section>`
     : ''
+  const tasksHtml = sections.tasks.body
+    ? `<section class="tasks-section">
+        <h2>${escapeHtml(sections.tasks.title)}</h2>
+        ${sections.tasks.body}
+      </section>`
+    : ''
   const attachmentsHtml = sections.attachments.body
     ? `<section class="attachments-section">
         <h2>${escapeHtml(sections.attachments.title)}</h2>
@@ -410,6 +489,7 @@ export function buildPrintDocument(ctx: PdfContext): string {
         ${sections.agenda.body}
       </section>
       ${decisionsHtml}
+      ${tasksHtml}
       ${attachmentsHtml}
       <section class="transcription">
         <h2>${escapeHtml(sections.transcription.title)}</h2>
@@ -483,6 +563,18 @@ html, body { margin: 0; padding: 0; color: #1f3d2b; font-family: 'Inter', system
 .decision-tally-leader { margin: 0; }
 .decision-tally-empty { margin: 0; font-style: italic; color: #2d5239; }
 .decision-note { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; background: #f5f0e1; border-left: 3px solid #1f3d2b; font-size: 0.85rem; white-space: pre-line; }
+.tasks-section h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: #1f3d2b; margin: 1.5rem 0 0.5rem; page-break-after: avoid; }
+.tasks-section h3 { font-family: 'Fraunces', Georgia, serif; font-size: 1rem; color: #1f3d2b; margin: 0.75rem 0 0.4rem; page-break-after: avoid; }
+.tasks-list { list-style: none; padding: 0; margin: 0; }
+.task { padding: 0.4rem 0; border-bottom: 1px solid #e7dfc9; page-break-inside: avoid; }
+.task:last-child { border-bottom: 0; }
+.task-title { margin: 0 0 0.2rem; font-size: 0.95rem; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; margin: 0 0 0.2rem; font-size: 0.8rem; color: #2d5239; }
+.task-owner { font-weight: 600; }
+.task-due { color: #1f3d2b; }
+.task-carried { padding: 0.05rem 0.4rem; border-radius: 999px; background: #e7dfc9; color: #1f3d2b; font-size: 0.7rem; font-weight: 600; }
+.task-notes { margin: 0.2rem 0 0; font-size: 0.85rem; color: #2d5239; white-space: pre-line; }
+.tasks-list-done .task-title { text-decoration: line-through; color: #2d5239; }
 .attachments-section h3 { font-family: 'Fraunces', Georgia, serif; font-size: 1.05rem; color: #1f3d2b; margin: 1rem 0 0.4rem; page-break-after: avoid; }
 .attachments-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
 .attachment { padding: 0.5rem 0; page-break-inside: avoid; }

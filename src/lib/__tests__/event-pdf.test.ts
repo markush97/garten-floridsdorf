@@ -24,6 +24,7 @@ function makeEvent(partial: Partial<EventWithDetails> = {}): EventWithDetails {
     actual_attendees: [],
     attachments: [],
     decisions: [],
+    tasks: [],
     agenda_items: [],
     ...partial,
   }
@@ -518,5 +519,148 @@ describe('buildPrintDocument decisions', () => {
       transcriptionHtml: '',
     })
     expect(html).not.toContain('<section class="decisions-section">')
+  })
+})
+
+describe('buildPdfSections tasks', () => {
+  const openTask = {
+    id: 1,
+    event_id: 1,
+    agenda_item_id: null,
+    title: 'Schlüssel bei Tom abholen',
+    owner_user_id: 3,
+    owner_name: null,
+    due_date: '2026-07-01',
+    status: 'open' as const,
+    carried_from_event_id: null,
+    carried_from_task_id: null,
+    notes: 'Bitte vor dem nächsten Treffen erledigen.',
+    sort_order: 0,
+    completed_at: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:00:00.000Z',
+    owner_display: 'Maria Hinkel',
+    is_carried_over: false,
+  }
+  const carriedTask = {
+    ...openTask,
+    id: 2,
+    title: 'Werkzeug aufräumen',
+    status: 'open' as const,
+    sort_order: 1,
+    carried_from_event_id: 1,
+    carried_from_task_id: 99,
+    is_carried_over: true,
+  }
+  const doneTask = {
+    ...openTask,
+    id: 3,
+    title: 'Liste verschickt',
+    status: 'done' as const,
+    sort_order: 2,
+    completed_at: '2026-06-09T00:00:00.000Z',
+  }
+
+  it('returns an empty body when there are no tasks', () => {
+    const sections = buildPdfSections({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    expect(sections.tasks.title).toBe('Aufgaben')
+    expect(sections.tasks.body).toBe('')
+  })
+
+  it('groups open and done tasks separately', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ tasks: [openTask, doneTask] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.tasks.body).toContain('Offen (1)')
+    expect(sections.tasks.body).toContain('Erledigt (1)')
+    expect(sections.tasks.body).toContain('Schlüssel bei Tom abholen')
+    expect(sections.tasks.body).toContain('Liste verschickt')
+  })
+
+  it('renders owner and due date for each task', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ tasks: [openTask] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.tasks.body).toContain('Maria Hinkel')
+    // The due date is formatted as DD.MM.YYYY in de-DE locale.
+    expect(sections.tasks.body).toMatch(/bis 0[17]\.07\.2026/)
+  })
+
+  it('marks carried-over tasks with a badge', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ tasks: [carriedTask] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.tasks.body).toContain('Werkzeug aufräumen')
+    expect(sections.tasks.body).toContain('aus dem letzten Treffen')
+  })
+
+  it('shows task summary on the cover', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ tasks: [openTask, doneTask, carriedTask] }),
+      transcriptionHtml: '',
+    })
+    // 2 open (openTask + carriedTask), 1 carried
+    expect(sections.cover.body).toMatch(/Aufgaben.*1 aus dem letzten Treffen/)
+  })
+
+  it('escapes titles and notes to prevent HTML injection', () => {
+    const evil = {
+      ...openTask,
+      title: '<script>alert(1)</script>',
+      notes: '"><img src=x onerror=alert(1)>',
+    }
+    const sections = buildPdfSections({
+      event: makeEvent({ tasks: [evil] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.tasks.body).not.toContain('<script>')
+    expect(sections.tasks.body).toContain('&lt;script&gt;')
+  })
+})
+
+describe('buildPrintDocument tasks', () => {
+  it('renders the Aufgaben section when tasks exist', () => {
+    const html = buildPrintDocument({
+      event: makeEvent({
+        tasks: [
+          {
+            id: 1,
+            event_id: 1,
+            agenda_item_id: null,
+            title: 'Test.',
+            owner_user_id: null,
+            owner_name: 'Oma',
+            due_date: null,
+            status: 'open' as const,
+            carried_from_event_id: null,
+            carried_from_task_id: null,
+            notes: null,
+            sort_order: 0,
+            completed_at: null,
+            created_at: '2026-06-10T00:00:00.000Z',
+            updated_at: '2026-06-10T00:00:00.000Z',
+            owner_display: null,
+            is_carried_over: false,
+          },
+        ],
+      }),
+      transcriptionHtml: '',
+    })
+    expect(html).toContain('<section class="tasks-section">')
+    expect(html).toContain('Test.')
+  })
+
+  it('omits the Aufgaben section when no tasks exist', () => {
+    const html = buildPrintDocument({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    expect(html).not.toContain('<section class="tasks-section">')
   })
 })

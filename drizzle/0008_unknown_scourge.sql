@@ -1,0 +1,21 @@
+CREATE TABLE `event_tasks` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`event_id` integer NOT NULL,
+	`agenda_item_id` integer,
+	`title` text NOT NULL,
+	`owner_user_id` integer,
+	`owner_name` text,
+	`due_date` text,
+	`status` text DEFAULT 'open' NOT NULL,
+	`carried_from_event_id` integer,
+	`carried_from_task_id` integer,
+	`notes` text,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`completed_at` text,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL,
+	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`agenda_item_id`) REFERENCES `event_agenda_items`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`owner_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`carried_from_event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE set null
+);

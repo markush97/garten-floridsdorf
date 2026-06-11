@@ -12,6 +12,7 @@ import AttachmentUploader from './AttachmentUploader'
 import AttendeesPanel from './AttendeesPanel'
 import DecisionsPanel from './DecisionsPanel'
 import EventPdfButton from './EventPdfButton'
+import TasksPanel from './TasksPanel'
 
 const FIELD =
   'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
@@ -57,6 +58,8 @@ export default function EventWorkspace({
       <AttachmentsSection event={event} />
       <Separator />
       <DecisionsPanel event={event} />
+      <Separator />
+      <TasksPanel event={event} />
       <Separator />
       <ProtocolSection
         event={event}

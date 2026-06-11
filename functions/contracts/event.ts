@@ -381,6 +381,111 @@ export const updateEventDecisionInputSchema = z
   })
   .strict()
 
+// ── Tasks / Aufgaben ────────────────────────────────────────────────────────
+
+export const TASK_STATUSES = ['open', 'done'] as const
+export const taskStatusSchema = z.enum(TASK_STATUSES)
+
+/**
+ * Carries over a task: creates a new task row in the *target* event
+ * that points back at the source task. The original stays put so
+ * past-event protocols still reflect what was open at the time.
+ */
+export const carryOverTaskInputSchema = z.object({
+  from_task_id: z.number().int().positive(),
+})
+
+export const eventTaskSchema = z.object({
+  id: z.number(),
+  event_id: z.number(),
+  agenda_item_id: z.number().nullable(),
+  title: z.string(),
+  owner_user_id: z.number().nullable(),
+  owner_name: z.string().nullable(),
+  due_date: z.string().nullable(),
+  status: taskStatusSchema,
+  carried_from_event_id: z.number().nullable(),
+  carried_from_task_id: z.number().nullable(),
+  notes: z.string().nullable(),
+  sort_order: z.number(),
+  completed_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  // Server-computed display strings (same pattern as decisions):
+  // owner's full name when the FK is set, otherwise the free-text
+  // fallback. The client never has to do a user join.
+  owner_display: z.string().nullable(),
+  // True iff this task was carried over from a previous event.
+  // Mirrors `carried_from_event_id !== null` but the client doesn't
+  // have to think about nulls.
+  is_carried_over: z.boolean(),
+})
+
+export const createEventTaskInputSchema = z
+  .object({
+    agenda_item_id: z.number().int().positive().nullable().optional(),
+    title: z.string().trim().min(1).max(300),
+    owner_user_id: z.number().int().positive().nullable().optional(),
+    owner_name: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    due_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format YYYY-MM-DD')
+      .nullable()
+      .optional(),
+    notes: z
+      .preprocess(
+        (v) => (v == null ? '' : v),
+        z
+          .string()
+          .max(50_000)
+          .transform((v) => v.trim())
+          .transform((v) => (v.length === 0 ? null : v)),
+      )
+      .optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.owner_user_id == null && !val.owner_name) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['owner_name'],
+        message: 'Bitte eine zuständige Person angeben.',
+      })
+    }
+  })
+
+export const updateEventTaskInputSchema = z
+  .object({
+    agenda_item_id: z.number().int().positive().nullable().optional(),
+    title: z.string().trim().min(1).max(300).optional(),
+    owner_user_id: z.number().int().positive().nullable().optional(),
+    owner_name: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    due_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format YYYY-MM-DD')
+      .nullable()
+      .optional(),
+    status: taskStatusSchema.optional(),
+    notes: z
+      .preprocess(
+        (v) => (v == null ? '' : v),
+        z
+          .string()
+          .max(50_000)
+          .transform((v) => v.trim())
+          .transform((v) => (v.length === 0 ? null : v)),
+      )
+      .optional(),
+  })
+  .strict()
+
 // ── Composite "with details" response ────────────────────────────────────
 
 export const eventWithDetailsSchema = eventSchema.extend({
@@ -388,6 +493,7 @@ export const eventWithDetailsSchema = eventSchema.extend({
   actual_attendees: z.array(eventAttendeeSchema),
   attachments: z.array(eventAttachmentSchema),
   decisions: z.array(eventDecisionSchema),
+  tasks: z.array(eventTaskSchema),
   agenda_items: z.array(
     eventAgendaItemSchema.extend({
       votes: z.array(eventAgendaVoteSchema),
@@ -441,3 +547,8 @@ export type CreateEventDecisionInput = z.infer<
 export type UpdateEventDecisionInput = z.infer<
   typeof updateEventDecisionInputSchema
 >
+export type EventTask = z.infer<typeof eventTaskSchema>
+export type TaskStatus = z.infer<typeof taskStatusSchema>
+export type CreateEventTaskInput = z.infer<typeof createEventTaskInputSchema>
+export type UpdateEventTaskInput = z.infer<typeof updateEventTaskInputSchema>
+export type CarryOverTaskInput = z.infer<typeof carryOverTaskInputSchema>

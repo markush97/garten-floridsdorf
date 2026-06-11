@@ -291,6 +291,7 @@ describe('eventWithDetailsSchema', () => {
       ],
       attachments: [],
       decisions: [],
+      tasks: [],
       agenda_items: [
         {
           id: 9,
@@ -354,6 +355,7 @@ describe('eventWithDetailsSchema', () => {
       actual_attendees: [],
       attachments: [],
       decisions: [],
+      tasks: [],
       agenda_items: [],
     })
     expect(result.success).toBe(true)
@@ -609,6 +611,123 @@ describe('updateEventDecisionInputSchema', () => {
       wording: 'ok',
       resolution_number: 'B-2026-099',
     })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task contracts
+// ---------------------------------------------------------------------------
+
+import {
+  carryOverTaskInputSchema,
+  createEventTaskInputSchema,
+  eventTaskSchema,
+  updateEventTaskInputSchema,
+} from '../contracts/event'
+
+describe('eventTaskSchema', () => {
+  it('accepts a valid task row', () => {
+    const result = eventTaskSchema.safeParse({
+      id: 1,
+      event_id: 1,
+      agenda_item_id: null,
+      title: 'Schlüssel abholen',
+      owner_user_id: 3,
+      owner_name: null,
+      due_date: '2026-07-01',
+      status: 'open',
+      carried_from_event_id: null,
+      carried_from_task_id: null,
+      notes: null,
+      sort_order: 0,
+      completed_at: null,
+      created_at: '2026-06-10T00:00:00.000Z',
+      updated_at: '2026-06-10T00:00:00.000Z',
+      owner_display: 'Maria Hinkel',
+      is_carried_over: false,
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('createEventTaskInputSchema', () => {
+  const valid = {
+    title: 'Schlüssel abholen',
+    owner_user_id: 3,
+  }
+
+  it('accepts a minimal task with a user FK as owner', () => {
+    const result = createEventTaskInputSchema.safeParse(valid)
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a free-text owner (no FK)', () => {
+    const result = createEventTaskInputSchema.safeParse({
+      ...valid,
+      owner_user_id: null,
+      owner_name: 'Oma (Gast)',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an empty title', () => {
+    const result = createEventTaskInputSchema.safeParse({
+      ...valid,
+      title: '   ',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a missing owner (no FK and no name)', () => {
+    const result = createEventTaskInputSchema.safeParse({
+      ...valid,
+      owner_user_id: null,
+      owner_name: null,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a malformed due_date', () => {
+    const result = createEventTaskInputSchema.safeParse({
+      ...valid,
+      due_date: '15.06.2026',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a null due_date', () => {
+    const result = createEventTaskInputSchema.safeParse({
+      ...valid,
+      due_date: null,
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('updateEventTaskInputSchema', () => {
+  it('accepts a status flip', () => {
+    const result = updateEventTaskInputSchema.safeParse({ status: 'done' })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects unknown fields (strict)', () => {
+    const result = updateEventTaskInputSchema.safeParse({
+      status: 'done',
+      carried_from_event_id: 99,
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('carryOverTaskInputSchema', () => {
+  it('accepts a positive task id', () => {
+    const result = carryOverTaskInputSchema.safeParse({ from_task_id: 42 })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a non-positive task id', () => {
+    const result = carryOverTaskInputSchema.safeParse({ from_task_id: 0 })
     expect(result.success).toBe(false)
   })
 })

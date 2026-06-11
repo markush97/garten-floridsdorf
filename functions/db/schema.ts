@@ -266,3 +266,45 @@ export const event_decisions = sqliteTable('event_decisions', {
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })
+
+/**
+ * A task / "Wer macht was bis wann?" arising from the event. The
+ * owner is stored as either a user FK (preferred) or a free-text
+ * name fallback. Carrying a task over to the next meeting creates a
+ * new task row in the new event with `carried_from_event_id` and
+ * `carried_from_task_id` pointing at the original; the old row
+ * stays in its event so the past event's protocol still reflects
+ * what was open at the time.
+ */
+export const event_tasks = sqliteTable('event_tasks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  agenda_item_id: integer('agenda_item_id').references(
+    () => event_agenda_items.id,
+    { onDelete: 'set null' },
+  ),
+  title: text('title').notNull(),
+  owner_user_id: integer('owner_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  owner_name: text('owner_name'),
+  due_date: text('due_date'),
+  status: text('status', { enum: ['open', 'done'] })
+    .notNull()
+    .default('open'),
+  carried_from_event_id: integer('carried_from_event_id').references(
+    () => events.id,
+    { onDelete: 'set null' },
+  ),
+  // Self-reference on event_tasks breaks drizzle-kit's snapshotter,
+  // so we model it as a plain integer and validate the target
+  // exists at the query layer.
+  carried_from_task_id: integer('carried_from_task_id'),
+  notes: text('notes'),
+  sort_order: integer('sort_order').notNull().default(0),
+  completed_at: text('completed_at'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})

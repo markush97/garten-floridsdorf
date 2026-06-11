@@ -1,16 +1,19 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { nowUtc, toVienna } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
 import { generateSlug } from '../../_lib/slug'
 import {
+  type CarryOverTaskInput,
   type CreateEventAgendaItemInput,
   type CreateEventAgendaVoteInput,
   type CreateEventAttendeeInput,
   type CreateEventDecisionInput,
   type CreateEventInput,
+  type CreateEventTaskInput,
   type EventAttachment,
   type EventDecision,
+  type EventTask,
   type EventWithDetails,
   isAllowedAttachmentContentType,
   MAX_ATTACHMENT_SIZE_BYTES,
@@ -22,6 +25,7 @@ import {
   type UpdateEventAttendeesInput,
   type UpdateEventDecisionInput,
   type UpdateEventInput,
+  type UpdateEventTaskInput,
 } from '../../contracts/event'
 import {
   event_actual_attendees,
@@ -32,6 +36,7 @@ import {
   event_attendee_votes,
   event_decisions,
   event_planned_attendees,
+  event_tasks,
   events,
   users,
 } from '../schema'
@@ -378,12 +383,52 @@ export async function findEventWithDetails(
     }
   })
 
+  // Tasks: fetch rows + owner users, same pattern as décisions.
+  const taskRows = await db
+    .select()
+    .from(event_tasks)
+    .where(eq(event_tasks.event_id, id))
+    .orderBy(asc(event_tasks.sort_order), asc(event_tasks.id))
+    .all()
+  const taskUserIds = new Set<number>()
+  for (const t of taskRows) {
+    if (t.owner_user_id !== null) taskUserIds.add(t.owner_user_id)
+  }
+  if (taskUserIds.size > 0) {
+    const missing = [...taskUserIds].filter((uid) => !userById.has(uid))
+    if (missing.length > 0) {
+      const rows = await db
+        .select({
+          id: users.id,
+          first_name: users.first_name,
+          last_name: users.last_name,
+        })
+        .from(users)
+        .where(inArray(users.id, missing))
+        .all()
+      for (const u of rows) userById.set(u.id, u)
+    }
+  }
+
+  const tasks: EventTask[] = taskRows.map((t) => {
+    const owner =
+      t.owner_user_id !== null ? userById.get(t.owner_user_id) : null
+    return {
+      ...t,
+      owner_display: owner
+        ? `${owner.first_name} ${owner.last_name}`.trim() || t.owner_name
+        : t.owner_name,
+      is_carried_over: t.carried_from_event_id !== null,
+    }
+  })
+
   return {
     ...event,
     planned_attendees: planned,
     actual_attendees: actual,
     attachments: eventLevelAttachments,
     decisions,
+    tasks,
     agenda_items: agenda.map((item) => ({
       ...item,
       votes: (votesByAgenda.get(item.id) ?? []).map((vote) => ({
@@ -1373,4 +1418,266 @@ export async function deleteDecision(
     )
   }
   await db.delete(event_decisions).where(eq(event_decisions.id, id))
+}
+
+// ── Tasks / Aufgaben ────────────────────────────────────────────────────────
+
+/**
+ * Returns the open tasks from the most recent prior event that the
+ * admin might want to carry over. "Prior" means a `scheduled_date`
+ * strictly before the current event's, or — if dates tie — a
+ * strictly older `created_at`. We exclude tasks that have already
+ * been carried over to the current event (they're already here).
+ */
+export async function findOpenTasksForCarryOver(
+  db: Database,
+  currentEventId: number,
+): Promise<Array<typeof event_tasks.$inferSelect>> {
+  const current = await findEventOrThrow(db, currentEventId)
+  // Find the latest prior event.
+  const candidate = await db
+    .select()
+    .from(events)
+    .where(
+      sql`(${events.scheduled_date} < ${current.scheduled_date} OR (${events.scheduled_date} = ${current.scheduled_date} AND ${events.created_at} < ${current.created_at}))`,
+    )
+    .orderBy(desc(events.scheduled_date), desc(events.created_at))
+    .limit(1)
+    .get()
+  if (!candidate) return []
+  const rows = await db
+    .select()
+    .from(event_tasks)
+    .where(
+      and(
+        eq(event_tasks.event_id, candidate.id),
+        eq(event_tasks.status, 'open'),
+        // Skip tasks that have already been carried over to the
+        // current event — we mark that via `carried_from_task_id`
+        // pointing at any task on this current event.
+        isNull(event_tasks.completed_at),
+      ),
+    )
+    .all()
+  return rows
+}
+
+export async function addTask(
+  db: Database,
+  eventId: number,
+  input: CreateEventTaskInput,
+) {
+  await findEventOrThrow(db, eventId)
+  if (input.agenda_item_id !== undefined && input.agenda_item_id !== null) {
+    const item = await db
+      .select({
+        id: event_agenda_items.id,
+        event_id: event_agenda_items.event_id,
+      })
+      .from(event_agenda_items)
+      .where(eq(event_agenda_items.id, input.agenda_item_id))
+      .get()
+    if (!item || item.event_id !== eventId) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Agendapunkt gehört nicht zu diesem Termin.',
+        400,
+      )
+    }
+  }
+  if (input.owner_user_id !== undefined && input.owner_user_id !== null) {
+    const user = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.owner_user_id))
+      .get()
+    if (!user) {
+      throw new AppError('VALIDATION_ERROR', 'Benutzer nicht gefunden.', 400)
+    }
+  }
+  const now = nowUtc()
+  const maxRow = await db
+    .select({
+      value: sql<number>`COALESCE(MAX(${event_tasks.sort_order}), -1)`,
+    })
+    .from(event_tasks)
+    .where(eq(event_tasks.event_id, eventId))
+    .get()
+  const sortOrder = (maxRow?.value ?? -1) + 1
+
+  const inserted = await db
+    .insert(event_tasks)
+    .values({
+      event_id: eventId,
+      agenda_item_id: input.agenda_item_id ?? null,
+      title: input.title.trim(),
+      owner_user_id: input.owner_user_id ?? null,
+      owner_name: input.owner_name ?? null,
+      due_date: input.due_date ?? null,
+      status: 'open',
+      notes: input.notes ?? null,
+      sort_order: sortOrder,
+      created_at: now,
+      updated_at: now,
+    })
+    .returning()
+  const row = inserted[0]
+  if (!row) {
+    throw new AppError('INTERNAL_ERROR', 'Fehler beim Anlegen', 500)
+  }
+  return row
+}
+
+export async function findTaskOrThrow(db: Database, id: number) {
+  const row = await db
+    .select()
+    .from(event_tasks)
+    .where(eq(event_tasks.id, id))
+    .get()
+  if (!row) {
+    throw new AppError('NOT_FOUND', 'Aufgabe nicht gefunden', 404)
+  }
+  return row
+}
+
+export async function updateTask(
+  db: Database,
+  eventId: number,
+  id: number,
+  input: UpdateEventTaskInput,
+) {
+  const current = await findTaskOrThrow(db, id)
+  if (current.event_id !== eventId) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Aufgabe gehört nicht zu diesem Termin.',
+      400,
+    )
+  }
+  const updates: Partial<typeof event_tasks.$inferInsert> = {
+    updated_at: nowUtc(),
+  }
+  if (input.title !== undefined) updates.title = input.title.trim()
+  if (input.agenda_item_id !== undefined) {
+    if (input.agenda_item_id !== null) {
+      const item = await db
+        .select({
+          id: event_agenda_items.id,
+          event_id: event_agenda_items.event_id,
+        })
+        .from(event_agenda_items)
+        .where(eq(event_agenda_items.id, input.agenda_item_id))
+        .get()
+      if (!item || item.event_id !== eventId) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Agendapunkt gehört nicht zu diesem Termin.',
+          400,
+        )
+      }
+    }
+    updates.agenda_item_id = input.agenda_item_id
+  }
+  if (input.owner_user_id !== undefined) {
+    if (input.owner_user_id !== null) {
+      const user = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, input.owner_user_id))
+        .get()
+      if (!user) {
+        throw new AppError('VALIDATION_ERROR', 'Benutzer nicht gefunden.', 400)
+      }
+    }
+    updates.owner_user_id = input.owner_user_id
+  }
+  if (input.owner_name !== undefined) updates.owner_name = input.owner_name
+  if (input.due_date !== undefined) updates.due_date = input.due_date
+  if (input.notes !== undefined) updates.notes = input.notes
+  if (input.status !== undefined) {
+    updates.status = input.status
+    // Stamp `completed_at` automatically when the task transitions
+    // to `done` (or clear it when it goes back to `open`).
+    if (input.status === 'done' && current.status !== 'done') {
+      updates.completed_at = nowUtc()
+    } else if (input.status === 'open' && current.status === 'done') {
+      updates.completed_at = null
+    }
+  }
+  await db.update(event_tasks).set(updates).where(eq(event_tasks.id, id))
+  return findTaskOrThrow(db, id)
+}
+
+export async function deleteTask(db: Database, eventId: number, id: number) {
+  const current = await findTaskOrThrow(db, id)
+  if (current.event_id !== eventId) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Aufgabe gehört nicht zu diesem Termin.',
+      400,
+    )
+  }
+  await db.delete(event_tasks).where(eq(event_tasks.id, id))
+}
+
+/**
+ * Carries an open task from one event into another. We *copy* the
+ * task: the source row stays where it is so the past event's
+ * protocol still shows "open at the time". The new row carries
+ * back-references via `carried_from_event_id` and
+ * `carried_from_task_id` so the UI can render the "Mitgenommen aus
+ * dem letzten Treffen" badge.
+ */
+export async function carryOverTask(
+  db: Database,
+  targetEventId: number,
+  input: CarryOverTaskInput,
+) {
+  const source = await findTaskOrThrow(db, input.from_task_id)
+  if (source.event_id === targetEventId) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Die Aufgabe ist bereits auf diesem Termin.',
+      400,
+    )
+  }
+  if (source.status !== 'open') {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Nur offene Aufgaben können mitgenommen werden.',
+      400,
+    )
+  }
+  const now = nowUtc()
+  const maxRow = await db
+    .select({
+      value: sql<number>`COALESCE(MAX(${event_tasks.sort_order}), -1)`,
+    })
+    .from(event_tasks)
+    .where(eq(event_tasks.event_id, targetEventId))
+    .get()
+  const sortOrder = (maxRow?.value ?? -1) + 1
+  const inserted = await db
+    .insert(event_tasks)
+    .values({
+      event_id: targetEventId,
+      agenda_item_id: null,
+      title: source.title,
+      owner_user_id: source.owner_user_id,
+      owner_name: source.owner_name,
+      due_date: source.due_date,
+      status: 'open',
+      carried_from_event_id: source.event_id,
+      carried_from_task_id: source.id,
+      notes: source.notes,
+      sort_order: sortOrder,
+      created_at: now,
+      updated_at: now,
+    })
+    .returning()
+  const row = inserted[0]
+  if (!row) {
+    throw new AppError('INTERNAL_ERROR', 'Fehler beim Übernehmen', 500)
+  }
+  return row
 }
