@@ -13,10 +13,13 @@ import {
   createEventAgendaVoteInputSchema,
   createEventAttendeeInputSchema,
   createEventInputSchema,
+  isAllowedAttachmentContentType,
+  MAX_ATTACHMENT_SIZE_BYTES,
   reorderEventAgendaItemsInputSchema,
   updateAttendeeVoteInputSchema,
   updateEventAgendaItemInputSchema,
   updateEventAgendaVoteInputSchema,
+  updateEventAttachmentInputSchema,
   updateEventAttendeesInputSchema,
   updateEventInputSchema,
 } from '../functions/contracts/event'
@@ -35,11 +38,14 @@ import {
   addActualAttendee,
   addAgendaItem,
   addAgendaVote,
+  addAttachment,
   addPlannedAttendee,
   createEvent,
   deleteAgendaItem,
   deleteAgendaVote,
+  deleteAttachment,
   deleteEvent,
+  findAttachmentOrThrow,
   findEventBySlugOrThrow,
   findEventForPoll,
   findEventWithDetails,
@@ -52,6 +58,7 @@ import {
   setAttendeeVote,
   updateAgendaItem,
   updateAgendaVote,
+  updateAttachment,
   updateEvent,
 } from '../functions/db/queries/events'
 import {
@@ -79,6 +86,7 @@ type AppEnv = {
     DB: D1Database
     ADMIN_PASSWORD: string
     JWT_SECRET: string
+    ATTACHMENTS: R2Bucket
   }
 }
 
@@ -557,5 +565,140 @@ app.put(
     return c.json(await setAttendeeVote(db, voteId, attendeeId, parsed.data))
   },
 )
+
+// ── Attachments ───────────────────────────────────────────────────────────
+
+/**
+ * Sanitises a user-supplied filename for use in the `Content-Disposition`
+ * header. We strip control chars, keep the extension, and fall back to
+ * a safe default if everything else is removed.
+ */
+function safeFilename(input: string): string {
+  // We whitelist rather than blacklist: any char that's not a letter,
+  // digit, dot, underscore or hyphen gets squashed to `_`. This is
+  // bulletproof against control chars, quotes, backslashes and
+  // directory-traversal sequences in one go.
+  const cleaned = input
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 200)
+  return cleaned.length > 0 ? cleaned : 'anhang'
+}
+
+app.post('/admin/events/:slug/attachments', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const body = await c.req.parseBody()
+  const file = body.file
+  const caption = body.caption
+  const agendaItemIdRaw = body.agenda_item_id
+
+  if (!(file instanceof File)) {
+    return c.json(
+      makeError('VALIDATION_ERROR', 'Datei fehlt (Feld „file“).'),
+      400,
+    )
+  }
+  if (!isAllowedAttachmentContentType(file.type)) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Dateityp nicht erlaubt. Erlaubt: Bilder und PDF.',
+      ),
+      400,
+    )
+  }
+  if (file.size <= 0 || file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        `Datei zu groß (max ${Math.round(MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024)} MB).`,
+      ),
+      400,
+    )
+  }
+
+  // Scope the agenda item to this event.
+  let agendaItemId: number | null = null
+  if (typeof agendaItemIdRaw === 'string' && agendaItemIdRaw.length > 0) {
+    const parsed = Number(agendaItemIdRaw)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige Agenda-ID'), 400)
+    }
+    agendaItemId = parsed
+  }
+
+  // Generate a stable, collision-resistant R2 key.
+  const safeName = safeFilename(file.name)
+  const key = `events/${event.id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`
+
+  await c.env.ATTACHMENTS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { originalFilename: safeName },
+  })
+
+  const captionText = typeof caption === 'string' ? caption : null
+  const row = await addAttachment(db, event.id, {
+    filename: safeName,
+    content_type: file.type,
+    r2_key: key,
+    size: file.size,
+    agenda_item_id: agendaItemId,
+    caption: captionText,
+  })
+  return c.json(row, 201)
+})
+
+app.get('/admin/events/:slug/attachments/:id/download', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const row = await findAttachmentOrThrow(db, id)
+  const object = await c.env.ATTACHMENTS.get(row.r2_key)
+  if (!object) {
+    return c.json(
+      makeError('NOT_FOUND', 'Datei nicht im Speicher gefunden.'),
+      404,
+    )
+  }
+  const isInline = row.content_type.startsWith('image/')
+  const disposition = `${isInline ? 'inline' : 'attachment'}; filename="${safeFilename(row.filename)}"`
+  const headers = new Headers()
+  headers.set('Content-Type', row.content_type)
+  headers.set('Content-Length', String(row.size))
+  headers.set('Content-Disposition', disposition)
+  headers.set('Cache-Control', 'private, max-age=300')
+  return new Response(object.body, { headers })
+})
+
+app.patch('/admin/events/:slug/attachments/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = updateEventAttachmentInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  void (await findEventBySlugOrThrow(createDb(c.env.DB), c.req.param('slug')))
+  const db = createDb(c.env.DB)
+  const row = await updateAttachment(db, id, parsed.data)
+  return c.json(row)
+})
+
+app.delete('/admin/events/:slug/attachments/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  void (await findEventBySlugOrThrow(createDb(c.env.DB), c.req.param('slug')))
+  const db = createDb(c.env.DB)
+  await deleteAttachment(db, c.env.ATTACHMENTS, id)
+  return c.json({ ok: true })
+})
 
 export default app

@@ -144,16 +144,25 @@ export type PdfContext = {
   /** Optional override: when the user is editing, we render the in-memory
    *  HTML (not yet saved). Falling back to the persisted value. */
   transcriptionHtml: string
+  /**
+   * If supplied, images are embedded inline in the PDF preview as
+   * data URLs. The print iframe shares cookies with the parent so it
+   * can fetch the auth-gated download URLs directly — but some
+   * browsers / extensions block that, so callers can pre-fetch and
+   * pass in a map for a guaranteed render.
+   */
+  imageDataUrls?: Map<number, string>
 }
 
 /**
  * Returns the data needed to render the print/PDF view: a title, a list
- * of sections (cover, TOC, agenda, transcription), and a flat TOC.
+ * of sections (cover, TOC, agenda, attachments, transcription), and a flat TOC.
  */
 export function buildPdfSections(ctx: PdfContext): {
   cover: PrintSection
   toc: TocEntry[]
   agenda: PrintSection
+  attachments: PrintSection
   transcription: PrintSection
 } {
   const event = ctx.event
@@ -190,11 +199,89 @@ export function buildPdfSections(ctx: PdfContext): {
     cover: { title: 'Termin', body: coverBody },
     toc: extractToc(transcriptionHtml),
     agenda: buildAgendaSection(event),
+    attachments: buildAttachmentsSection(event, ctx.imageDataUrls),
     transcription: {
       title: 'Protokoll',
       body: transcriptionHtml || '<p class="empty">Kein Protokoll erfasst.</p>',
     },
   }
+}
+
+/**
+ * Renders the "Anhänge" section. We list attachments in two groups —
+ * the event-level ones first, then per-agenda-item — so the reader
+ * sees them in the same order the admin uploaded them. Image
+ * attachments get an inline `<img>` (data URL if provided, otherwise a
+ * same-origin URL the iframe can fetch); everything else is a link
+ * with the filename and size.
+ */
+function buildAttachmentsSection(
+  event: EventWithDetails,
+  imageDataUrls?: Map<number, string>,
+): PrintSection {
+  const eventLevel = event.attachments
+  const perAgenda = event.agenda_items
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((item) => ({
+      item,
+      attachments: item.attachments,
+    }))
+    .filter((g) => g.attachments.length > 0)
+
+  const hasAny = eventLevel.length > 0 || perAgenda.length > 0
+  if (!hasAny) return { title: 'Anhänge', body: '' }
+
+  const groups: string[] = []
+  if (eventLevel.length > 0) {
+    groups.push(
+      `<h3>Allgemein</h3><ul class="attachments-list">${renderAttachmentList(
+        eventLevel,
+        event.slug,
+        imageDataUrls,
+      )}</ul>`,
+    )
+  }
+  for (const { item, attachments } of perAgenda) {
+    groups.push(
+      `<h3>${escapeHtml(item.title)}</h3><ul class="attachments-list">${renderAttachmentList(
+        attachments,
+        event.slug,
+        imageDataUrls,
+      )}</ul>`,
+    )
+  }
+  return { title: 'Anhänge', body: groups.join('') }
+}
+
+function renderAttachmentList(
+  attachments: EventWithDetails['attachments'],
+  eventSlug: string,
+  imageDataUrls?: Map<number, string>,
+): string {
+  return attachments
+    .map((att) => {
+      const isImage = att.content_type.startsWith('image/')
+      const dataUrl = imageDataUrls?.get(att.id)
+      const url = dataUrl
+        ? dataUrl
+        : `/api/admin/events/${eventSlug}/attachments/${att.id}/download`
+      const caption = att.caption
+        ? `<p class="attachment-caption">${escapeHtml(att.caption)}</p>`
+        : ''
+      const size = ` (${formatBytes(att.size)})`
+      if (isImage) {
+        return `<li class="attachment attachment-image"><img alt="${escapeHtml(att.caption ?? att.filename)}" src="${url}" /><p class="attachment-meta">${escapeHtml(att.filename)}${size}</p>${caption}</li>`
+      }
+      return `<li class="attachment attachment-file"><a href="${url}">${escapeHtml(att.filename)}</a><span class="attachment-meta">${size}${att.content_type === 'application/pdf' ? ' · PDF' : ''}</span>${caption}</li>`
+    })
+    .join('')
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 /**
@@ -206,6 +293,12 @@ export function buildPrintDocument(ctx: PdfContext): string {
   const sections = buildPdfSections(ctx)
   const event = ctx.event
   const tocHtml = renderToc(sections.toc)
+  const attachmentsHtml = sections.attachments.body
+    ? `<section class="attachments-section">
+        <h2>${escapeHtml(sections.attachments.title)}</h2>
+        ${sections.attachments.body}
+      </section>`
+    : ''
 
   return `<!doctype html>
 <html lang="de">
@@ -225,6 +318,7 @@ export function buildPrintDocument(ctx: PdfContext): string {
         <h2>${escapeHtml(sections.agenda.title)}</h2>
         ${sections.agenda.body}
       </section>
+      ${attachmentsHtml}
       <section class="transcription">
         <h2>${escapeHtml(sections.transcription.title)}</h2>
         <div class="prose-content">${sections.transcription.body}</div>
@@ -277,6 +371,14 @@ html, body { margin: 0; padding: 0; color: #1f3d2b; font-family: 'Inter', system
 .prose-content ul, .prose-content ol { margin: 0.4rem 0 0.4rem 1.4rem; }
 .prose-content li { margin: 0.15rem 0; }
 .prose-content .empty { color: #2d5239; font-style: italic; }
+.attachments-section h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: #1f3d2b; margin: 1.5rem 0 0.5rem; page-break-after: avoid; }
+.attachments-section h3 { font-family: 'Fraunces', Georgia, serif; font-size: 1.05rem; color: #1f3d2b; margin: 1rem 0 0.4rem; page-break-after: avoid; }
+.attachments-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
+.attachment { padding: 0.5rem 0; page-break-inside: avoid; }
+.attachment-image img { display: block; max-width: 100%; max-height: 14cm; width: auto; height: auto; margin: 0.25rem 0 0.4rem; border-radius: 0.25rem; box-shadow: 0 2px 6px rgba(31, 61, 43, 0.12); }
+.attachment-file a { color: #1f3d2b; text-decoration: none; border-bottom: 1px solid #c2b8a4; font-weight: 600; }
+.attachment-meta { display: block; font-size: 0.8rem; color: #2d5239; margin-top: 0.2rem; }
+.attachment-caption { font-size: 0.9rem; font-style: italic; color: #2d5239; margin: 0.2rem 0 0; }
 @media print {
   .no-print { display: none !important; }
 }

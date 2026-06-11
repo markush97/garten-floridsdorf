@@ -22,6 +22,7 @@ function makeEvent(partial: Partial<EventWithDetails> = {}): EventWithDetails {
     updated_at: '2026-06-10T00:00:00.000Z',
     planned_attendees: [],
     actual_attendees: [],
+    attachments: [],
     agenda_items: [],
     ...partial,
   }
@@ -136,6 +137,7 @@ describe('buildPdfSections', () => {
           status: 'discussed',
           sort_order: 0,
           votes: [],
+          attachments: [],
         },
       ],
     })
@@ -175,6 +177,7 @@ describe('buildPdfSections', () => {
             status: 'open',
             sort_order: 0,
             votes: [],
+            attachments: [],
           },
           {
             id: 2,
@@ -184,6 +187,7 @@ describe('buildPdfSections', () => {
             status: 'skipped',
             sort_order: 1,
             votes: [],
+            attachments: [],
           },
         ],
       }),
@@ -191,6 +195,122 @@ describe('buildPdfSections', () => {
     })
     expect(sections.agenda.body).toContain('○')
     expect(sections.agenda.body).toContain('×')
+  })
+})
+
+describe('buildPdfSections attachments', () => {
+  const imageAtt = {
+    id: 11,
+    event_id: 1,
+    agenda_item_id: null,
+    filename: 'foto.jpg',
+    content_type: 'image/jpeg',
+    size: 1024 * 50,
+    r2_key: 'events/1/foto.jpg',
+    caption: 'Foto der Wasserleitung',
+    uploaded_by_user_id: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+  }
+  const pdfAtt = {
+    id: 12,
+    event_id: 1,
+    agenda_item_id: 9,
+    filename: 'rechnung.pdf',
+    content_type: 'application/pdf',
+    size: 1024 * 200,
+    r2_key: 'events/1/rechnung.pdf',
+    caption: 'Materialrechnung',
+    uploaded_by_user_id: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+  }
+
+  it('returns an empty body when there are no attachments', () => {
+    const sections = buildPdfSections({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    expect(sections.attachments.title).toBe('Anhänge')
+    expect(sections.attachments.body).toBe('')
+  })
+
+  it('lists event-level and per-agenda attachments in order', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({
+        attachments: [imageAtt],
+        agenda_items: [
+          {
+            id: 9,
+            event_id: 1,
+            title: 'Wasserverteiler',
+            notes: null,
+            status: 'open',
+            sort_order: 0,
+            votes: [],
+            attachments: [pdfAtt],
+          },
+        ],
+      }),
+      transcriptionHtml: '',
+    })
+    // Both groups rendered, event-level first
+    const allMatches = sections.attachments.body.match(/<h3>/g) ?? []
+    expect(allMatches).toHaveLength(2)
+    const eventIndex = sections.attachments.body.indexOf('Allgemein')
+    const agendaIndex = sections.attachments.body.indexOf('Wasserverteiler')
+    expect(eventIndex).toBeGreaterThan(-1)
+    expect(agendaIndex).toBeGreaterThan(eventIndex)
+    expect(sections.attachments.body).toContain('Foto der Wasserleitung')
+    expect(sections.attachments.body).toContain('Materialrechnung')
+  })
+
+  it('uses a data URL when the caller pre-fetches the image', () => {
+    const dataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    const sections = buildPdfSections({
+      event: makeEvent({ attachments: [imageAtt] }),
+      transcriptionHtml: '',
+      imageDataUrls: new Map([[imageAtt.id, dataUrl]]),
+    })
+    expect(sections.attachments.body).toContain(dataUrl)
+    expect(sections.attachments.body).not.toContain('/api/admin/events/')
+  })
+
+  it('falls back to the same-origin download URL when no data URL is supplied', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ attachments: [imageAtt] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.attachments.body).toContain(
+      `/api/admin/events/garten-juni/attachments/${imageAtt.id}/download`,
+    )
+  })
+
+  it('renders a download link for non-image attachments', () => {
+    const sections = buildPdfSections({
+      event: makeEvent({ attachments: [pdfAtt] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.attachments.body).toContain('rechnung.pdf')
+    expect(sections.attachments.body).toContain('PDF')
+    // PDFs use the link to the auth-gated download endpoint.
+    expect(sections.attachments.body).toContain(
+      `/api/admin/events/garten-juni/attachments/${pdfAtt.id}/download`,
+    )
+  })
+
+  it('escapes filenames and captions to prevent HTML injection', () => {
+    const evilAtt = {
+      ...imageAtt,
+      id: 99,
+      filename: '<script>alert(1)</script>.jpg',
+      caption: '"><img src=x onerror=alert(1)>',
+    }
+    const sections = buildPdfSections({
+      event: makeEvent({ attachments: [evilAtt] }),
+      transcriptionHtml: '',
+    })
+    expect(sections.attachments.body).not.toContain('<script>')
+    expect(sections.attachments.body).toContain('&lt;script&gt;')
   })
 })
 
@@ -213,5 +333,40 @@ describe('buildPrintDocument', () => {
       transcriptionHtml: '<p>Kein Heading.</p>',
     })
     expect(html).not.toContain('<section class="toc">')
+  })
+
+  it('renders an Anhänge section when the event has attachments', () => {
+    const event = makeEvent({
+      attachments: [
+        {
+          id: 11,
+          event_id: 1,
+          agenda_item_id: null,
+          filename: 'foto.jpg',
+          content_type: 'image/jpeg',
+          size: 1024,
+          r2_key: 'k',
+          caption: 'Foto',
+          uploaded_by_user_id: null,
+          created_at: '2026-06-10T00:00:00.000Z',
+        },
+      ],
+    })
+    const html = buildPrintDocument({ event, transcriptionHtml: '' })
+    expect(html).toContain('attachments-section')
+    expect(html).toContain('Anhänge')
+    expect(html).toContain('Allgemein')
+    expect(html).toContain('foto.jpg')
+  })
+
+  it('omits the Anhänge section when there are no attachments', () => {
+    const html = buildPrintDocument({
+      event: makeEvent(),
+      transcriptionHtml: '',
+    })
+    // The CSS rule `.attachments-section h2` lives in the stylesheet;
+    // we check for the actual <section> tag instead so the assertion
+    // doesn't get tripped up by the stylesheet copy.
+    expect(html).not.toContain('<section class="attachments-section">')
   })
 })

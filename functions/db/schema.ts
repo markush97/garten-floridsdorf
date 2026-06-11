@@ -201,3 +201,29 @@ export const event_attendee_votes = sqliteTable(
     uniqueIndex('event_attendee_votes_unique').on(t.vote_id, t.attendee_id),
   ],
 )
+
+// A file attached to an event, optionally scoped to a single agenda item.
+// The actual bytes live in Cloudflare R2 under `r2_key`; this row is
+// the metadata + pointer. We snapshot `filename` and `content_type` so
+// download responses still work even if the R2 object metadata is
+// missing (which can happen on cross-bucket restores).
+export const event_attachments = sqliteTable('event_attachments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  agenda_item_id: integer('agenda_item_id').references(
+    () => event_agenda_items.id,
+    { onDelete: 'cascade' },
+  ),
+  filename: text('filename').notNull(),
+  content_type: text('content_type').notNull(),
+  size: integer('size').notNull(),
+  r2_key: text('r2_key').notNull().unique(),
+  caption: text('caption'),
+  uploaded_by_user_id: integer('uploaded_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  created_at: text('created_at').notNull(),
+})

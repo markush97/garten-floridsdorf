@@ -8,10 +8,12 @@ import type {
   CreateEventInput,
   Event,
   EventAgendaVote,
+  EventAttachment,
   EventWithDetails,
   UpdateAttendeeVoteInput,
   UpdateEventAgendaItemInput,
   UpdateEventAgendaVoteInput,
+  UpdateEventAttachmentInput,
   UpdateEventAttendeesInput,
   UpdateEventInput,
 } from '~func/contracts/event'
@@ -345,6 +347,79 @@ export function useSetAttendeeVote(slug: string) {
         `/admin/events/${slug}/agenda-votes/${voteId}/attendees/${attendeeId}`,
         { method: 'PUT', body: data },
       ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────
+
+/**
+ * Uploads a single file to an event (or to a specific agenda item).
+ * The browser sends the file as multipart/form-data; the worker
+ * streams it to R2 and writes the metadata row in one go.
+ */
+export function useUploadAttachment(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      file: File
+      agenda_item_id?: number | null
+      caption?: string
+    }) => {
+      const formData = new FormData()
+      formData.append('file', input.file)
+      if (input.agenda_item_id !== undefined && input.agenda_item_id !== null) {
+        formData.append('agenda_item_id', String(input.agenda_item_id))
+      }
+      if (input.caption) {
+        formData.append('caption', input.caption)
+      }
+      return apiClient<EventAttachment>(`/admin/events/${slug}/attachments`, {
+        method: 'POST',
+        body: formData,
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useUpdateAttachment(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number
+      data: UpdateEventAttachmentInput
+    }) =>
+      apiClient<EventAttachment>(`/admin/events/${slug}/attachments/${id}`, {
+        method: 'PATCH',
+        body: data,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useDeleteAttachment(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<{ ok: boolean }>(`/admin/events/${slug}/attachments/${id}`, {
+        method: 'DELETE',
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.events.detail(slug),

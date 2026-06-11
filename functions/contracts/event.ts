@@ -201,14 +201,58 @@ export const updateAttendeeVoteInputSchema = z.object({
   response: z.boolean().nullable(),
 })
 
+// ── Attachments ───────────────────────────────────────────────────────────
+
+/** Hard cap on a single attachment. The worker also enforces this. */
+export const MAX_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024
+
+/** Content types we accept for event attachments. Other types are rejected
+ *  with a 415 by the worker. We use literal prefixes for image/* and
+ *  exact matches for document types. */
+export const ATTACHMENT_IMAGE_PREFIX = 'image/'
+export const ATTACHMENT_PDF_TYPE = 'application/pdf'
+
+/** Returns true when the content type is allowed for upload. Kept here
+ *  (not in the worker) so client-side pre-flight checks share the same
+ *  rule as the server. */
+export function isAllowedAttachmentContentType(contentType: string): boolean {
+  if (contentType.startsWith(ATTACHMENT_IMAGE_PREFIX)) return true
+  if (contentType === ATTACHMENT_PDF_TYPE) return true
+  return false
+}
+
+export const eventAttachmentSchema = z.object({
+  id: z.number(),
+  event_id: z.number(),
+  agenda_item_id: z.number().nullable(),
+  filename: z.string(),
+  content_type: z.string(),
+  size: z.number(),
+  r2_key: z.string(),
+  caption: z.string().nullable(),
+  uploaded_by_user_id: z.number().nullable(),
+  created_at: z.string(),
+})
+
+/** The metadata the client can patch after a successful upload — currently
+ *  just the caption and (optionally) which agenda item it's attached to. */
+export const updateEventAttachmentInputSchema = z
+  .object({
+    caption: optionalLongText,
+    agenda_item_id: z.number().int().positive().nullable().optional(),
+  })
+  .strict()
+
 // ── Composite "with details" response ────────────────────────────────────
 
 export const eventWithDetailsSchema = eventSchema.extend({
   planned_attendees: z.array(eventAttendeeSchema),
   actual_attendees: z.array(eventAttendeeSchema),
+  attachments: z.array(eventAttachmentSchema),
   agenda_items: z.array(
     eventAgendaItemSchema.extend({
       votes: z.array(eventAgendaVoteSchema),
+      attachments: z.array(eventAttachmentSchema),
     }),
   ),
 })
@@ -247,3 +291,7 @@ export type UpdateAttendeeVoteInput = z.infer<
   typeof updateAttendeeVoteInputSchema
 >
 export type EventWithDetails = z.infer<typeof eventWithDetailsSchema>
+export type EventAttachment = z.infer<typeof eventAttachmentSchema>
+export type UpdateEventAttachmentInput = z.infer<
+  typeof updateEventAttachmentInputSchema
+>

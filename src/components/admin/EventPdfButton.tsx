@@ -41,6 +41,47 @@ export default function EventPdfButton({ event, transcriptionHtml }: Props) {
     return buildPrintDocument(ctxRef.current)
   }, [])
 
+  /**
+   * Pre-fetches every image attachment as a data URL so the resulting
+   * print/HTML file is fully self-contained. The standalone download
+   * is opened outside the admin session (no auth cookies), so the
+   * same-origin download URL would 403; pre-fetching sidesteps that.
+   * Image errors are silent — a missing thumbnail just shows a
+   * broken-image glyph in the print view, which the user can fix by
+   * re-uploading.
+   */
+  const prefetchImages = useCallback(async (): Promise<Map<number, string>> => {
+    const imageAttachments = [
+      ...event.attachments,
+      ...event.agenda_items.flatMap((i) => i.attachments),
+    ].filter((a) => a.content_type.startsWith('image/'))
+    if (imageAttachments.length === 0) return new Map()
+    const out = new Map<number, string>()
+    await Promise.all(
+      imageAttachments.map(async (att) => {
+        try {
+          const res = await fetch(
+            `/api/admin/events/${event.slug}/attachments/${att.id}/download`,
+            { credentials: 'include' },
+          )
+          if (!res.ok) return
+          const blob = await res.blob()
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(blob)
+          })
+          out.set(att.id, dataUrl)
+        } catch {
+          // Best-effort; the print view will fall back to the
+          // same-origin URL which the auth'd iframe can still fetch.
+        }
+      }),
+    )
+    return out
+  }, [event])
+
   const handlePrint = useCallback(() => {
     if (typeof window === 'undefined') return
     let frame = iframeRef.current
@@ -65,34 +106,52 @@ export default function EventPdfButton({ event, transcriptionHtml }: Props) {
       toast.error('Druckvorschau konnte nicht vorbereitet werden.')
       return
     }
-    doc.open()
-    doc.write(getDocument())
-    doc.close()
-    // Wait a tick for the layout to settle, then open the print dialog.
-    requestAnimationFrame(() => {
-      try {
-        frame?.contentWindow?.focus()
-        frame?.contentWindow?.print()
-      } catch {
-        toast.error('Druckdialog konnte nicht geöffnet werden.')
+    // Show a brief loading state while images are being fetched.
+    const loadingToastId = toast.loading('Bilder werden vorgeladen …')
+    void (async () => {
+      const imageDataUrls = await prefetchImages()
+      ctxRef.current = {
+        ...ctxRef.current,
+        imageDataUrls,
       }
-    })
-  }, [getDocument])
+      doc.open()
+      doc.write(getDocument())
+      doc.close()
+      toast.dismiss(loadingToastId)
+      // Wait a tick for the layout to settle, then open the print dialog.
+      requestAnimationFrame(() => {
+        try {
+          frame?.contentWindow?.focus()
+          frame?.contentWindow?.print()
+        } catch {
+          toast.error('Druckdialog konnte nicht geöffnet werden.')
+        }
+      })
+    })()
+  }, [getDocument, prefetchImages])
 
   const handleDownloadHtml = useCallback(() => {
     if (typeof window === 'undefined') return
-    const blob = new Blob([getDocument()], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${slugify(event.title)}-protokoll.html`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    // Revoke after a short delay so the browser has time to start the
-    // download — revoking too eagerly can cancel it on some platforms.
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }, [getDocument, event.title])
+    const loadingToastId = toast.loading('Wird vorbereitet …')
+    void (async () => {
+      const imageDataUrls = await prefetchImages()
+      ctxRef.current = { ...ctxRef.current, imageDataUrls }
+      const blob = new Blob([getDocument()], {
+        type: 'text/html;charset=utf-8',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${slugify(event.title)}-protokoll.html`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      toast.dismiss(loadingToastId)
+      // Revoke after a short delay so the browser has time to start the
+      // download — revoking too eagerly can cancel it on some platforms.
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    })()
+  }, [getDocument, event.title, prefetchImages])
 
   // Tear down the iframe on unmount so we don't leak a hidden DOM node.
   useEffect(() => {

@@ -12,7 +12,8 @@
       "!.wrangler",
       "!coverage",
       "!playwright-report",
-      "!src/routeTree.gen.ts"
+      "!src/routeTree.gen.ts",
+      "!drizzle"
     ]
   },
   "formatter": {

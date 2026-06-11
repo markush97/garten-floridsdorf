@@ -8,6 +8,7 @@ import { RichTextEditor } from '~/ui/rich-text-editor'
 import { Separator } from '~/ui/separator'
 import type { EventWithDetails, UpdateEventInput } from '~func/contracts/event'
 import AgendaPanel from './AgendaPanel'
+import AttachmentUploader from './AttachmentUploader'
 import AttendeesPanel from './AttendeesPanel'
 import EventPdfButton from './EventPdfButton'
 
@@ -51,6 +52,8 @@ export default function EventWorkspace({
       <AttendeesPanel event={event} />
       <Separator />
       <AgendaPanel event={event} />
+      <Separator />
+      <AttachmentsSection event={event} />
       <Separator />
       <ProtocolSection
         event={event}
@@ -238,4 +241,24 @@ function isHtmlEmpty(html: string): boolean {
     .replace(/&nbsp;/g, '')
     .trim()
   return stripped.length === 0
+}
+
+function AttachmentsSection({ event }: { event: EventWithDetails }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-forest-900">Anhänge</p>
+        <p className="text-xs text-forest-700/70">
+          Fotos, Rechnungen, Skizzen — alles, was zum Termin gehört. Pro
+          Agendapunkt gibt es unten eigene Anhänge; diese Liste ist für
+          übergreifende Dateien.
+        </p>
+      </div>
+      <AttachmentUploader
+        attachments={event.attachments}
+        compact
+        eventSlug={event.slug}
+      />
+    </div>
+  )
 }

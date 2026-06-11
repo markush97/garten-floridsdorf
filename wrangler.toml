@@ -14,3 +14,10 @@ binding = "DB"
 database_name = "garten-floridsdorf"
 database_id = "482df2b9-2920-45da-8d1a-59d3c380f36f"
 migrations_dir = "drizzle"
+
+# R2 bucket for event attachments. Local dev runs against a MinIO-compatible
+# R2 dev server (`wrangler r2 object`); production uses a real R2 bucket.
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "garten-floridsdorf-attachments"
+preview_bucket_name = "garten-floridsdorf-attachments-preview"

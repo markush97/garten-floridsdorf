@@ -22,6 +22,7 @@ import {
 import { Button } from '~/ui/button'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
+import { Separator } from '~/ui/separator'
 import type {
   AgendaCountingMode,
   AgendaStatus,
@@ -31,6 +32,7 @@ import type {
   EventWithDetails,
 } from '~func/contracts/event'
 import AgendaVoteCard from './AgendaVoteCard'
+import AttachmentUploader from './AttachmentUploader'
 
 const FIELD =
   'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
@@ -388,6 +390,22 @@ function AgendaItemCard({
           ))
         )}
         <NewVoteForm onSubmit={(payload) => onAddVote(payload)} />
+
+        {item.attachments.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <p className="mb-2 text-xs font-semibold text-forest-700/80">
+                Anhänge zu diesem Agendapunkt
+              </p>
+              <AttachmentUploader
+                agendaItemId={item.id}
+                attachments={item.attachments}
+                eventSlug={eventSlug}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {confirmDelete && (

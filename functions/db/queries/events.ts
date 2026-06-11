@@ -3,23 +3,28 @@ import { nowUtc, toVienna } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
 import { generateSlug } from '../../_lib/slug'
-import type {
-  CreateEventAgendaItemInput,
-  CreateEventAgendaVoteInput,
-  CreateEventAttendeeInput,
-  CreateEventInput,
-  EventWithDetails,
-  UpdateAttendeeVoteInput,
-  UpdateEventAgendaItemInput,
-  UpdateEventAgendaVoteInput,
-  UpdateEventAttendeesInput,
-  UpdateEventInput,
+import {
+  type CreateEventAgendaItemInput,
+  type CreateEventAgendaVoteInput,
+  type CreateEventAttendeeInput,
+  type CreateEventInput,
+  type EventAttachment,
+  type EventWithDetails,
+  isAllowedAttachmentContentType,
+  MAX_ATTACHMENT_SIZE_BYTES,
+  type UpdateAttendeeVoteInput,
+  type UpdateEventAgendaItemInput,
+  type UpdateEventAgendaVoteInput,
+  type UpdateEventAttachmentInput,
+  type UpdateEventAttendeesInput,
+  type UpdateEventInput,
 } from '../../contracts/event'
 import {
   event_actual_attendees,
   event_agenda_items,
   event_agenda_vote_options,
   event_agenda_votes,
+  event_attachments,
   event_attendee_votes,
   event_planned_attendees,
   events,
@@ -202,10 +207,32 @@ export async function findEventWithDetails(
     votesByAgenda.set(vote.agenda_item_id, list)
   }
 
+  // Attachments: fetch once, partition into "event-level" (agenda_item_id
+  // IS NULL) and per-agenda buckets so the detail response mirrors the
+  // UI's natural layout.
+  const allAttachments = await db
+    .select()
+    .from(event_attachments)
+    .where(eq(event_attachments.event_id, id))
+    .orderBy(asc(event_attachments.created_at))
+    .all()
+  const eventLevelAttachments: EventAttachment[] = []
+  const attachmentsByAgenda = new Map<number, EventAttachment[]>()
+  for (const att of allAttachments) {
+    if (att.agenda_item_id === null) {
+      eventLevelAttachments.push(att)
+    } else {
+      const list = attachmentsByAgenda.get(att.agenda_item_id) ?? []
+      list.push(att)
+      attachmentsByAgenda.set(att.agenda_item_id, list)
+    }
+  }
+
   return {
     ...event,
     planned_attendees: planned,
     actual_attendees: actual,
+    attachments: eventLevelAttachments,
     agenda_items: agenda.map((item) => ({
       ...item,
       votes: (votesByAgenda.get(item.id) ?? []).map((vote) => ({
@@ -213,6 +240,7 @@ export async function findEventWithDetails(
         options: optionsByVote.get(vote.id) ?? [],
         attendee_votes: attendeeVotesByVote.get(vote.id) ?? [],
       })),
+      attachments: attachmentsByAgenda.get(item.id) ?? [],
     })),
   }
 }
@@ -792,4 +820,166 @@ export async function findEventForPoll(db: Database, pollId: number) {
     .orderBy(desc(events.created_at))
     .get()
   return event ?? null
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────
+
+/**
+ * Input for `addAttachment` — the worker hands us the validated
+ * metadata; the bytes live in the R2 binding.
+ */
+export type AddAttachmentInput = {
+  filename: string
+  content_type: string
+  /** R2 key where the worker has already PUT the object. We pass it in
+   *  rather than having the query generate it so the worker can use the
+   *  same key for the body stream and the row insert (no second lookup
+   *  is needed if R2 put fails). */
+  r2_key: string
+  size: number
+  agenda_item_id?: number | null
+  caption?: string | null
+  uploaded_by_user_id?: number | null
+}
+
+export async function addAttachment(
+  db: Database,
+  eventId: number,
+  input: AddAttachmentInput,
+) {
+  await findEventOrThrow(db, eventId)
+  if (!isAllowedAttachmentContentType(input.content_type)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Dateityp nicht erlaubt. Erlaubt: Bilder und PDF.',
+      400,
+    )
+  }
+  if (input.size <= 0 || input.size > MAX_ATTACHMENT_SIZE_BYTES) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      `Datei zu groß (max ${Math.round(MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024)} MB).`,
+      400,
+    )
+  }
+  // If scoped to an agenda item, verify it belongs to this event.
+  if (input.agenda_item_id !== null && input.agenda_item_id !== undefined) {
+    const item = await db
+      .select({
+        id: event_agenda_items.id,
+        event_id: event_agenda_items.event_id,
+      })
+      .from(event_agenda_items)
+      .where(eq(event_agenda_items.id, input.agenda_item_id))
+      .get()
+    if (!item || item.event_id !== eventId) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Agendapunkt gehört nicht zu diesem Termin.',
+        400,
+      )
+    }
+  }
+  const now = nowUtc()
+  const inserted = await db
+    .insert(event_attachments)
+    .values({
+      event_id: eventId,
+      agenda_item_id: input.agenda_item_id ?? null,
+      filename: input.filename,
+      content_type: input.content_type,
+      size: input.size,
+      r2_key: input.r2_key,
+      caption: normalizeOptional(input.caption),
+      uploaded_by_user_id: input.uploaded_by_user_id ?? null,
+      created_at: now,
+    })
+    .returning()
+  const row = inserted[0]
+  if (!row) {
+    throw new AppError('INTERNAL_ERROR', 'Fehler beim Anlegen', 500)
+  }
+  return row
+}
+
+export async function findAttachmentOrThrow(db: Database, id: number) {
+  const row = await db
+    .select()
+    .from(event_attachments)
+    .where(eq(event_attachments.id, id))
+    .get()
+  if (!row) {
+    throw new AppError('NOT_FOUND', 'Anhang nicht gefunden', 404)
+  }
+  return row
+}
+
+export async function updateAttachment(
+  db: Database,
+  id: number,
+  input: UpdateEventAttachmentInput,
+) {
+  const current = await findAttachmentOrThrow(db, id)
+  const updates: Partial<typeof event_attachments.$inferInsert> = {}
+  if (input.caption !== undefined) {
+    updates.caption = normalizeOptional(input.caption)
+  }
+  if (input.agenda_item_id !== undefined) {
+    if (input.agenda_item_id !== null) {
+      // Validate the new parent.
+      const item = await db
+        .select({
+          id: event_agenda_items.id,
+          event_id: event_agenda_items.event_id,
+        })
+        .from(event_agenda_items)
+        .where(eq(event_agenda_items.id, input.agenda_item_id))
+        .get()
+      if (!item || item.event_id !== current.event_id) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Agendapunkt gehört nicht zu diesem Termin.',
+          400,
+        )
+      }
+    }
+    updates.agenda_item_id = input.agenda_item_id
+  }
+  if (Object.keys(updates).length === 0) {
+    return current
+  }
+  await db
+    .update(event_attachments)
+    .set(updates)
+    .where(eq(event_attachments.id, id))
+  return findAttachmentOrThrow(db, id)
+}
+
+/**
+ * Deletes the DB row and best-effort the R2 object. If the R2 delete
+ * fails (object already gone, transient network error) we don't fail
+ * the whole call — the row is the source of truth for what the user
+ * sees, and an orphan blob is cheap to ignore.
+ */
+export async function deleteAttachment(
+  db: Database,
+  bucket: R2Bucket,
+  id: number,
+) {
+  const row = await findAttachmentOrThrow(db, id)
+  await db.delete(event_attachments).where(eq(event_attachments.id, id))
+  try {
+    await bucket.delete(row.r2_key)
+  } catch (err) {
+    console.warn('[attachments] R2 delete failed', { r2_key: row.r2_key, err })
+  }
+}
+
+export async function listEventAttachments(db: Database, eventId: number) {
+  return db
+    .select()
+    .from(event_attachments)
+    .where(eq(event_attachments.event_id, eventId))
+    .orderBy(asc(event_attachments.created_at))
+    .all()
 }

@@ -289,6 +289,7 @@ describe('eventWithDetailsSchema', () => {
       actual_attendees: [
         { id: 2, event_id: 1, user_id: 3, name: 'Maria', sort_order: 0 },
       ],
+      attachments: [],
       agenda_items: [
         {
           id: 9,
@@ -328,6 +329,7 @@ describe('eventWithDetailsSchema', () => {
               ],
             },
           ],
+          attachments: [],
         },
       ],
     })
@@ -349,6 +351,7 @@ describe('eventWithDetailsSchema', () => {
       updated_at: '2026-06-10T10:00:00.000Z',
       planned_attendees: [],
       actual_attendees: [],
+      attachments: [],
       agenda_items: [],
     })
     expect(result.success).toBe(true)
@@ -393,5 +396,99 @@ describe('findEventForPoll', () => {
     const { findEventForPoll } = await import('../db/queries/events')
     const result = await findEventForPoll({ select } as never, 42)
     expect(result).toEqual(event)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Attachment contracts
+// ---------------------------------------------------------------------------
+
+import {
+  eventAttachmentSchema,
+  isAllowedAttachmentContentType,
+  MAX_ATTACHMENT_SIZE_BYTES,
+  updateEventAttachmentInputSchema,
+} from '../contracts/event'
+
+describe('isAllowedAttachmentContentType', () => {
+  it('accepts image/* prefixes', () => {
+    expect(isAllowedAttachmentContentType('image/png')).toBe(true)
+    expect(isAllowedAttachmentContentType('image/jpeg')).toBe(true)
+    expect(isAllowedAttachmentContentType('image/webp')).toBe(true)
+    expect(isAllowedAttachmentContentType('image/svg+xml')).toBe(true)
+  })
+
+  it('accepts application/pdf', () => {
+    expect(isAllowedAttachmentContentType('application/pdf')).toBe(true)
+  })
+
+  it('rejects other content types', () => {
+    expect(isAllowedAttachmentContentType('application/zip')).toBe(false)
+    expect(isAllowedAttachmentContentType('text/plain')).toBe(false)
+    expect(isAllowedAttachmentContentType('video/mp4')).toBe(false)
+    expect(isAllowedAttachmentContentType('')).toBe(false)
+  })
+})
+
+describe('eventAttachmentSchema', () => {
+  it('accepts a valid attachment row', () => {
+    const result = eventAttachmentSchema.safeParse({
+      id: 1,
+      event_id: 1,
+      agenda_item_id: null,
+      filename: 'foto.jpg',
+      content_type: 'image/jpeg',
+      size: 12345,
+      r2_key: 'events/1/abc-foto.jpg',
+      caption: 'Foto der Wasserleitung',
+      uploaded_by_user_id: null,
+      created_at: '2026-06-10T00:00:00.000Z',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a row missing required fields', () => {
+    const result = eventAttachmentSchema.safeParse({
+      id: 1,
+      filename: 'foto.jpg',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('updateEventAttachmentInputSchema', () => {
+  it('accepts a caption-only patch', () => {
+    const result = updateEventAttachmentInputSchema.safeParse({
+      caption: 'Neue Bildunterschrift',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an agenda_item_id reassignment', () => {
+    const result = updateEventAttachmentInputSchema.safeParse({
+      agenda_item_id: 9,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a null agenda_item_id to detach from an item', () => {
+    const result = updateEventAttachmentInputSchema.safeParse({
+      agenda_item_id: null,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects unknown fields (strict)', () => {
+    const result = updateEventAttachmentInputSchema.safeParse({
+      caption: 'ok',
+      filename: 'forbidden',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('MAX_ATTACHMENT_SIZE_BYTES', () => {
+  it('is 20 MB', () => {
+    expect(MAX_ATTACHMENT_SIZE_BYTES).toBe(20 * 1024 * 1024)
   })
 })
