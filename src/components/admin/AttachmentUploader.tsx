@@ -28,8 +28,9 @@ const FIELD =
 
 type Props = {
   eventSlug: string
-  /** When set, the uploader scopes new uploads to this agenda item and
-   *  filters the existing list to those belonging to it. */
+  /** When set, new uploads are scoped to this agenda item. The caller
+   *  is responsible for passing an `attachments` list already filtered
+   *  to that item — this component does not filter it itself. */
   agendaItemId?: number
   attachments: EventAttachment[]
   /** When true, renders the compact "section" form (no per-row caption

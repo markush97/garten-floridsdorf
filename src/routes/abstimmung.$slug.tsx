@@ -53,7 +53,7 @@ function PollPage() {
         )}
         {isError && (
           <div className="py-16 text-center text-beet-700">
-            Umfrage konnte nicht geladen werden.{' '}
+            Terminabstimmung konnte nicht geladen werden.{' '}
             <Link className="underline" to="/">
               Zurück zur Startseite
             </Link>
@@ -77,7 +77,7 @@ function PollPage() {
               )}
               {!poll.is_active && !poll.final_option_id && (
                 <p className="mt-3 text-sm text-forest-700/60">
-                  Diese Umfrage ist abgeschlossen.
+                  Diese Terminabstimmung ist abgeschlossen.
                 </p>
               )}
             </div>

@@ -8,7 +8,7 @@ import {
   UserSquareIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { type AttendeeVoteRow, summarizeVote } from '~/lib/event-helpers'
 import { cn } from '~/lib/ui-utils'
@@ -467,10 +467,26 @@ function AnonymousCounters({
   const [drafts, setDrafts] = useState<Record<number, number>>(() =>
     Object.fromEntries(options.map((o) => [o.id, o.count])),
   )
+  // Options the user has locally edited since the last save — these
+  // are kept as-is when the server sends new counts (e.g. another
+  // admin tab), everything else resyncs to the server value.
+  const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
 
-  // Resync when the server-side count changes (e.g. another admin tab).
-  if (options.some((o) => drafts[o.id] === undefined)) {
-    setDrafts(Object.fromEntries(options.map((o) => [o.id, o.count])))
+  useEffect(() => {
+    setDrafts((prev) => {
+      const next = { ...prev }
+      for (const opt of options) {
+        if (!dirtyIds.has(opt.id)) {
+          next[opt.id] = opt.count
+        }
+      }
+      return next
+    })
+  }, [options, dirtyIds])
+
+  function updateDraft(optionId: number, value: number) {
+    setDrafts((prev) => ({ ...prev, [optionId]: value }))
+    setDirtyIds((prev) => new Set(prev).add(optionId))
   }
 
   function save() {
@@ -486,7 +502,10 @@ function AnonymousCounters({
         },
       },
       {
-        onSuccess: () => toast.success('Zähler aktualisiert.'),
+        onSuccess: () => {
+          toast.success('Zähler aktualisiert.')
+          setDirtyIds(new Set())
+        },
         onError: () => toast.error('Speichern fehlgeschlagen.'),
       },
     )
@@ -505,10 +524,7 @@ function AnonymousCounters({
             className={COUNT_FIELD}
             min={0}
             onChange={(e) =>
-              setDrafts((prev) => ({
-                ...prev,
-                [opt.id]: Math.max(0, Number(e.target.value) || 0),
-              }))
+              updateDraft(opt.id, Math.max(0, Number(e.target.value) || 0))
             }
             type="number"
             value={drafts[opt.id] ?? 0}

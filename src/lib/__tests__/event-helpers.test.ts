@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { EventAgendaVote } from '~func/contracts/event'
-import { stripHtmlTags, summarizeVote } from '../event-helpers'
+import {
+  formatGermanDate,
+  stripHtmlTags,
+  summarizeVote,
+} from '../event-helpers'
 
 function makeVote(
   partial: Partial<EventAgendaVote> & {
@@ -139,5 +143,32 @@ describe('stripHtmlTags', () => {
 
   it('decodes non-breaking spaces', () => {
     expect(stripHtmlTags('<p>vorne&nbsp;hinten</p>')).toBe('vorne hinten')
+  })
+})
+
+describe('formatGermanDate', () => {
+  it('formats a YYYY-MM-DD string as DD.MM.YYYY regardless of host timezone', () => {
+    // These assertions must hold under any TZ env (the suite is also run
+    // with TZ=America/New_York): the date is anchored at noon UTC and
+    // rendered in Europe/Vienna, so the calendar day can never flip.
+    expect(formatGermanDate('2026-07-01')).toBe('01.07.2026')
+    expect(formatGermanDate('2026-06-15')).toBe('15.06.2026')
+  })
+
+  it('supports custom Intl options while staying in Europe/Vienna', () => {
+    expect(
+      formatGermanDate('2026-07-01', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }),
+    ).toBe('Mittwoch, 1. Juli 2026')
+  })
+
+  it('returns invalid input unchanged', () => {
+    expect(formatGermanDate('kein-datum')).toBe('kein-datum')
+    expect(formatGermanDate('2026-07')).toBe('2026-07')
+    expect(formatGermanDate('')).toBe('')
   })
 })

@@ -31,6 +31,7 @@ import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { RichTextEditor } from '~/ui/rich-text-editor'
 import { Separator } from '~/ui/separator'
+import { EditorShell } from './form-ui'
 
 type OptionDraft = {
   uid: number
@@ -108,20 +109,24 @@ export default function PollEditor({ pollId }: Props) {
       },
       {
         onSuccess: (poll) => {
-          toast.success('Umfrage erstellt und aktiviert.')
+          toast.success('Terminabstimmung erstellt und aktiviert.')
           void navigate({
             to: '/abstimmung/$slug',
             params: { slug: poll.slug },
           })
         },
-        onError: () => toast.error('Fehler beim Erstellen der Umfrage.'),
+        onError: () =>
+          toast.error('Fehler beim Erstellen der Terminabstimmung.'),
       },
     )
   }
 
   if (isNew) {
     return (
-      <EditorShell title="Neue Umfrage erstellen">
+      <EditorShell
+        contentClassName="max-w-2xl"
+        title="Neue Terminabstimmung erstellen"
+      >
         <form className="space-y-6" onSubmit={handleCreate}>
           <div className="space-y-1.5">
             <Label htmlFor="poll-title">Titel</Label>
@@ -222,7 +227,7 @@ export default function PollEditor({ pollId }: Props) {
             <Button disabled={isCreating} type="submit">
               {isCreating
                 ? 'Wird erstellt …'
-                : 'Umfrage erstellen & aktivieren'}
+                : 'Terminabstimmung erstellen & aktivieren'}
             </Button>
           </div>
         </form>
@@ -350,8 +355,8 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
 
   if (!pollSummary) {
     return (
-      <EditorShell title="Umfrage">
-        <p className="text-forest-700/60">Umfrage nicht gefunden.</p>
+      <EditorShell contentClassName="max-w-2xl" title="Terminabstimmung">
+        <p className="text-forest-700/60">Terminabstimmung nicht gefunden.</p>
         <Link className="mt-4 inline-block text-sm underline" to="/admin/polls">
           Zurück zur Übersicht
         </Link>
@@ -372,7 +377,7 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
     : null
 
   return (
-    <EditorShell title={pollSummary.title}>
+    <EditorShell contentClassName="max-w-2xl" title={pollSummary.title}>
       <div className="space-y-6">
         <div className="flex flex-col gap-3 rounded-[1.25rem] bg-white/75 p-5 ring-1 ring-inset ring-white/40">
           <div className="flex items-center justify-between">
@@ -675,14 +680,17 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
                 finalizePoll(
                   { id: pollSummary.id, data: { closed: true } },
                   {
-                    onSuccess: () => toast.success('Umfrage geschlossen.'),
+                    onSuccess: () =>
+                      toast.success('Terminabstimmung geschlossen.'),
                     onError: () => toast.error('Fehler.'),
                   },
                 )
               }
               variant="outline"
             >
-              {isFinalizing ? 'Wird geschlossen …' : 'Umfrage schließen'}
+              {isFinalizing
+                ? 'Wird geschlossen …'
+                : 'Terminabstimmung schließen'}
             </Button>
           </>
         )}
@@ -695,34 +703,5 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
         </Link>
       </div>
     </EditorShell>
-  )
-}
-
-function EditorShell({
-  title,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
-      <header className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-3 py-4 sm:px-6 lg:px-8">
-        <Link to="/">
-          <img
-            alt="SV Beet & Bewegung"
-            className="h-9 w-9 mix-blend-multiply"
-            src="/brand/icon.png"
-          />
-        </Link>
-        <span className="text-sm font-medium text-forest-700">Admin</span>
-      </header>
-      <main className="mx-auto w-full max-w-[1180px] px-3 pb-20 pt-2 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl space-y-6 rounded-[1.5rem] bg-white/75 p-5 shadow-[0_8px_24px_rgba(31,61,43,0.07)] ring-1 ring-inset ring-white/40 backdrop-blur sm:p-8">
-          <h1 className="text-2xl text-forest-900">{title}</h1>
-          {children}
-        </div>
-      </main>
-    </div>
   )
 }

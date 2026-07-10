@@ -82,6 +82,11 @@ export const updateEventAttendeesInputSchema = z.object({
   attendees: z
     .array(
       z.object({
+        // Existing rows carry their id so the server can update them
+        // in place instead of delete + re-insert (which would cascade
+        // away recorded attendee votes). Entries without an id are
+        // inserted as new rows.
+        id: z.number().int().positive().optional(),
         name: z.string().trim().min(1).max(200),
         user_id: z.number().int().positive().nullish(),
       }),
@@ -602,8 +607,8 @@ export const createEventShareTokenInputSchema = z
 
 /**
  * The full response shape returned when the admin creates a new
- * share token. Includes the plaintext [`token`](../worker/index.ts )
- * exactly once — the admin UI must show it then forget it.
+ * share token. Includes the plaintext token exactly once — the
+ * admin UI must show it then forget it.
  */
 export const createEventShareTokenResponseSchema = z.object({
   token: eventShareTokenSchema,

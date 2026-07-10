@@ -16,7 +16,6 @@ import {
 import { useAdminUsers } from '~/services/user.service'
 import { Badge } from '~/ui/badge'
 import { Button } from '~/ui/button'
-import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { Separator } from '~/ui/separator'
 import type {
@@ -26,15 +25,7 @@ import type {
   EventWithDetails,
   UpdateEventDecisionInput,
 } from '~func/contracts/event'
-
-const FIELD =
-  'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const TEXTAREA =
-  'min-h-24 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-3 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const SELECT =
-  'h-11 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 text-base text-forest-900 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
+import { ConfirmDeleteBar, PersonPicker, SELECT, TEXTAREA } from './form-ui'
 
 type Props = { event: EventWithDetails }
 
@@ -168,6 +159,7 @@ function DecisionCard({
         agendaItems={agendaItems}
         allVotes={allVotes}
         initial={{
+          id: decision.id,
           wording: decision.wording,
           proposer_user_id: decision.proposer_user_id,
           proposer_name: decision.proposer_name,
@@ -274,36 +266,15 @@ function DecisionCard({
       )}
 
       {confirmDelete && (
-        <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-beet-700/10 p-3 ring-1 ring-inset ring-beet-700/30"
-          role="alertdialog"
-        >
-          <p className="text-sm text-beet-700">
-            Beschluss wirklich löschen? Die Nummer wird nicht wiederverwendet.
-          </p>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setConfirmDelete(false)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Abbrechen
-            </Button>
-            <Button
-              className="bg-beet-700 text-white hover:bg-beet-700/90"
-              disabled={isDeleting}
-              onClick={() => {
-                onDelete()
-                setConfirmDelete(false)
-              }}
-              size="sm"
-              type="button"
-            >
-              {isDeleting ? 'Wird gelöscht …' : 'Endgültig löschen'}
-            </Button>
-          </div>
-        </div>
+        <ConfirmDeleteBar
+          isPending={isDeleting}
+          message="Beschluss wirklich löschen? Die Nummer wird nicht wiederverwendet."
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            onDelete()
+            setConfirmDelete(false)
+          }}
+        />
       )}
     </div>
   )
@@ -325,6 +296,7 @@ function PersonRow({
 }
 
 type FormInitial = {
+  id: number
   wording: string
   proposer_user_id: number | null
   proposer_name: string | null
@@ -374,6 +346,7 @@ function DecisionForm({
   const userOptions = users
     .slice()
     .sort((a, b) => a.last_name.localeCompare(b.last_name))
+  const idPrefix = initial ? String(initial.id) : 'new'
 
   // When the user picks a known user, clear the free-text fallback to
   // avoid a confusing two-name display. When they clear the FK, we
@@ -418,12 +391,10 @@ function DecisionForm({
   return (
     <div className="rounded-[1.25rem] bg-forest-900/4 p-4 ring-1 ring-inset ring-forest-900/8 sm:p-5">
       <div className="space-y-1.5">
-        <Label htmlFor={`wording-${initial?.wording ?? 'new'}`}>
-          Beschlusstext
-        </Label>
+        <Label htmlFor={`wording-${idPrefix}`}>Beschlusstext</Label>
         <textarea
           className={TEXTAREA}
-          id={`wording-${initial?.wording ?? 'new'}`}
+          id={`wording-${idPrefix}`}
           maxLength={2000}
           onChange={(e) => setWording(e.target.value)}
           placeholder={
@@ -433,37 +404,33 @@ function DecisionForm({
         />
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <PersonPickerFields
-          freeTextId={`proposer-name-${initial?.wording ?? 'new'}`}
-          freeTextPlaceholder="Name (kein Benutzer)"
+        <PersonPicker
           freeTextValue={proposerName}
+          idPrefix={`proposer-${idPrefix}`}
           label="Antragsteller:in"
           onFreeTextChange={setProposerName}
           onUserChange={handleProposerUserChange}
-          selectId={`proposer-user-${initial?.wording ?? 'new'}`}
           userValue={proposerUserId}
           users={userOptions}
         />
-        <PersonPickerFields
-          freeTextId={`seconder-name-${initial?.wording ?? 'new'}`}
-          freeTextPlaceholder="Name (kein Benutzer)"
+        <PersonPicker
           freeTextValue={seconderName}
+          idPrefix={`seconder-${idPrefix}`}
           label="Zweite Person"
           onFreeTextChange={setSeconderName}
           onUserChange={handleSeconderUserChange}
-          selectId={`seconder-user-${initial?.wording ?? 'new'}`}
           userValue={seconderUserId}
           users={userOptions}
         />
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor={`agenda-item-${initial?.wording ?? 'new'}`}>
+          <Label htmlFor={`agenda-item-${idPrefix}`}>
             Agendapunkt (optional)
           </Label>
           <select
             className={SELECT}
-            id={`agenda-item-${initial?.wording ?? 'new'}`}
+            id={`agenda-item-${idPrefix}`}
             onChange={(e) =>
               setAgendaItemId(
                 e.target.value === '' ? '' : Number(e.target.value),
@@ -480,12 +447,12 @@ function DecisionForm({
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor={`vote-${initial?.wording ?? 'new'}`}>
+          <Label htmlFor={`vote-${idPrefix}`}>
             Verknüpfte Abstimmung (optional)
           </Label>
           <select
             className={SELECT}
-            id={`vote-${initial?.wording ?? 'new'}`}
+            id={`vote-${idPrefix}`}
             onChange={(e) =>
               setVoteId(e.target.value === '' ? '' : Number(e.target.value))
             }
@@ -507,12 +474,12 @@ function DecisionForm({
         </div>
       </div>
       <div className="mt-3 space-y-1.5">
-        <Label htmlFor={`result-note-${initial?.wording ?? 'new'}`}>
+        <Label htmlFor={`result-note-${idPrefix}`}>
           Ergebnisnotiz (optional)
         </Label>
         <textarea
           className={cn(TEXTAREA, 'min-h-20')}
-          id={`result-note-${initial?.wording ?? 'new'}`}
+          id={`result-note-${idPrefix}`}
           maxLength={50000}
           onChange={(e) => setResultNote(e.target.value)}
           placeholder={'z. B. „einstimmig angenommen, 1 Enthaltung.“'}
@@ -583,57 +550,6 @@ function NewDecisionForm(props: {
           props.onSubmit(data as CreateEventDecisionInput)
           setIsOpen(false)
         }}
-      />
-    </div>
-  )
-}
-
-function PersonPickerFields({
-  users,
-  userValue,
-  freeTextValue,
-  onUserChange,
-  onFreeTextChange,
-  label,
-  selectId,
-  freeTextId,
-  freeTextPlaceholder,
-}: {
-  users: Array<{ id: number; first_name: string; last_name: string }>
-  userValue: number | ''
-  freeTextValue: string
-  onUserChange: (v: number | '') => void
-  onFreeTextChange: (v: string) => void
-  label: string
-  selectId: string
-  freeTextId: string
-  freeTextPlaceholder: string
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <select
-        className={SELECT}
-        id={selectId}
-        onChange={(e) =>
-          onUserChange(e.target.value === '' ? '' : Number(e.target.value))
-        }
-        value={userValue}
-      >
-        <option value="">— kein Benutzer —</option>
-        {users.map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.first_name} {u.last_name}
-          </option>
-        ))}
-      </select>
-      <Input
-        className={FIELD}
-        id={freeTextId}
-        maxLength={200}
-        onChange={(e) => onFreeTextChange(e.target.value)}
-        placeholder={freeTextPlaceholder}
-        value={freeTextValue}
       />
     </div>
   )

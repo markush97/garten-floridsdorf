@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { AGENDA_STATUS_LABELS } from '~/lib/event-helpers'
 import { cn } from '~/lib/ui-utils'
 import { Button } from '~/ui/button'
+import { DatePicker } from '~/ui/date-picker'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { RichTextEditor } from '~/ui/rich-text-editor'
@@ -12,14 +14,15 @@ import AttachmentsSection from './AttachmentsSection'
 import AttendeesPanel from './AttendeesPanel'
 import DecisionsPanel from './DecisionsPanel'
 import EventPdfButton from './EventPdfButton'
+import {
+  FIELD,
+  formatTimeDigits,
+  parseIsoDate,
+  TEXTAREA,
+  toIsoDate,
+} from './form-ui'
 import SharePanel from './SharePanel'
 import TasksPanel from './TasksPanel'
-
-const FIELD =
-  'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const TEXTAREA =
-  'min-h-24 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-3 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
 
 type Props = {
   event: EventWithDetails
@@ -80,8 +83,10 @@ export default function EventWorkspace({
       <LiveTranscript
         event={event}
         isDeleting={isDeleting}
+        isUpdating={isUpdating}
         onDelete={onDelete}
         onTranscriptionChange={setTranscriptionDraft}
+        onUpdate={onUpdate}
         transcriptionDraft={transcriptionDraft}
       />
       <Separator />
@@ -114,7 +119,9 @@ function EventMetaCard({
   onTranscriptionChange: (html: string) => void
 }) {
   const [title, setTitle] = useState(event.title)
-  const [date, setDate] = useState(event.scheduled_date)
+  const [date, setDate] = useState<Date | undefined>(
+    parseIsoDate(event.scheduled_date),
+  )
   const [time, setTime] = useState(event.scheduled_time ?? '')
   const [location, setLocation] = useState(event.location ?? '')
   const [agenda, setAgenda] = useState(event.agenda ?? '')
@@ -125,9 +132,13 @@ function EventMetaCard({
       toast.error('Bitte einen Titel eingeben.')
       return
     }
+    if (!date) {
+      toast.error('Bitte ein Datum wählen.')
+      return
+    }
     onUpdate({
       title: title.trim(),
-      scheduled_date: date,
+      scheduled_date: toIsoDate(date),
       scheduled_time: time.trim() ? time.trim() : null,
       location: location.trim() ? location.trim() : null,
       agenda: agenda.trim() ? agenda.trim() : null,
@@ -154,26 +165,20 @@ function EventMetaCard({
           value={title}
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+      <div className="grid gap-3 sm:grid-cols-[2fr_1fr] sm:gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="event-date">Datum</Label>
-          <Input
-            className={FIELD}
-            id="event-date"
-            onChange={(e) => setDate(e.target.value)}
-            required
-            type="date"
-            value={date}
-          />
+          <Label>Datum</Label>
+          <DatePicker onChange={setDate} value={date} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="event-time">Uhrzeit (optional)</Label>
           <Input
             className={FIELD}
             id="event-time"
-            onChange={(e) => setTime(e.target.value)}
+            inputMode="numeric"
+            maxLength={5}
+            onChange={(e) => setTime(formatTimeDigits(e.target.value))}
             placeholder="HH:mm"
-            type="time"
             value={time}
           />
         </div>
@@ -237,16 +242,30 @@ function EventMetaCard({
 function LiveTranscript({
   event,
   isDeleting,
+  isUpdating,
   onDelete,
+  onUpdate,
   transcriptionDraft,
   onTranscriptionChange,
 }: {
   event: EventWithDetails
   isDeleting: boolean
+  isUpdating: boolean
   onDelete: () => void
+  onUpdate: (data: UpdateEventInput) => void
   transcriptionDraft: string
   onTranscriptionChange: (html: string) => void
 }) {
+  const isDirty = transcriptionDraft !== (event.transcription ?? '')
+
+  function handleSaveTranscript() {
+    onUpdate({
+      transcription: isHtmlEmpty(transcriptionDraft)
+        ? null
+        : transcriptionDraft,
+    })
+  }
+
   return (
     <section
       aria-label="Live-Protokoll"
@@ -260,17 +279,31 @@ function LiveTranscript({
           </p>
           <p className="text-xs text-forest-700/70">
             Links steht die Tagesordnung als Referenz, rechts der Editor für
-            dein Protokoll. Wird automatisch gespeichert — klicke „Speichern",
-            um eine neue Version festzuschreiben.
+            dein Protokoll. Änderungen werden erst beim Klick auf „Protokoll
+            speichern" übernommen.
           </p>
         </div>
-        <EventPdfButton event={event} transcriptionHtml={transcriptionDraft} />
+        <div className="flex items-center gap-2">
+          <EventPdfButton
+            event={event}
+            transcriptionHtml={transcriptionDraft}
+          />
+          <Button
+            disabled={isUpdating || !isDirty}
+            onClick={handleSaveTranscript}
+            size="sm"
+            type="button"
+          >
+            {isUpdating ? 'Wird gespeichert …' : 'Protokoll speichern'}
+          </Button>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <AgendaReferenceSidebar event={event} />
         <TranscriptionEditorPanel
-          isUpdating={false}
+          isDirty={isDirty}
+          isUpdating={isUpdating}
           onChange={onTranscriptionChange}
           transcriptionDraft={transcriptionDraft}
         />
@@ -319,7 +352,7 @@ function AgendaReferenceSidebar({ event }: { event: EventWithDetails }) {
         </p>
         <p className="text-xs text-forest-700/70">
           {items.length === 0
-            ? 'Noch keine Punkte — füge sie oben in „Agendapunkte" hinzu.'
+            ? 'Noch keine Punkte — füge sie oben in „Agendapunkte“ hinzu.'
             : `${items.length} ${items.length === 1 ? 'Punkt' : 'Punkte'} · Status wird mitprotokolliert.`}
         </p>
       </header>
@@ -343,7 +376,7 @@ function AgendaReferenceSidebar({ event }: { event: EventWithDetails }) {
                   {item.title}
                 </p>
                 <p className="text-[10px] uppercase tracking-wide text-forest-700/70">
-                  {statusLabel(item.status)}
+                  {AGENDA_STATUS_LABELS[item.status]}
                 </p>
               </div>
             </li>
@@ -352,17 +385,6 @@ function AgendaReferenceSidebar({ event }: { event: EventWithDetails }) {
       )}
     </aside>
   )
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'discussed':
-      return 'Besprochen'
-    case 'skipped':
-      return 'Übersprungen'
-    default:
-      return 'Offen'
-  }
 }
 
 /**
@@ -375,10 +397,12 @@ function TranscriptionEditorPanel({
   transcriptionDraft,
   onChange,
   isUpdating,
+  isDirty,
 }: {
   transcriptionDraft: string
   onChange: (html: string) => void
   isUpdating: boolean
+  isDirty: boolean
 }) {
   return (
     <div
@@ -394,11 +418,15 @@ function TranscriptionEditorPanel({
           value={transcriptionDraft}
         />
       </div>
-      {isUpdating && (
+      {isUpdating ? (
         <p className="text-xs text-forest-700/70" role="status">
           Wird gespeichert …
         </p>
-      )}
+      ) : isDirty ? (
+        <p className="text-xs text-wood-600" role="status">
+          Ungespeicherte Änderungen — klicke „Protokoll speichern“.
+        </p>
+      ) : null}
     </div>
   )
 }

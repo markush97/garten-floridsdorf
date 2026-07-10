@@ -3,6 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import Footer from '~/components/landing/Footer'
+import { formatGermanDate } from '~/lib/event-helpers'
 import { fetchSharedEvent } from '~/services/event.service'
 import type { SharedEvent } from '~func/contracts/event'
 
@@ -139,13 +140,20 @@ function SharedEventPanel({ shared }: { shared: SharedEvent }) {
           {shared.title}
         </h1>
         <p className="text-sm text-forest-700/80">
-          <strong>{formatDate(shared.scheduled_date)}</strong>
+          <strong>
+            {formatGermanDate(shared.scheduled_date, {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </strong>
           {shared.scheduled_time && ` · ${shared.scheduled_time} Uhr`}
           {shared.location && ` · ${shared.location}`}
         </p>
       </header>
 
-      {shared.agenda && shared.agenda.trim() && (
+      {shared.agenda?.trim() && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-forest-700/80">
             Vorbemerkung
@@ -169,7 +177,8 @@ function SharedEventPanel({ shared }: { shared: SharedEvent }) {
             {shared.agenda_items.map((item, idx) => (
               <li
                 className="flex items-start gap-3 rounded-[1rem] bg-white/70 p-3 ring-1 ring-inset ring-forest-900/8"
-                key={item.title}
+                // biome-ignore lint/suspicious/noArrayIndexKey: shared agenda items carry no id and titles can repeat; the list is render-only.
+                key={idx}
               >
                 <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-forest-900/8 text-xs font-semibold text-forest-700">
                   {idx + 1}
@@ -209,29 +218,4 @@ function statusLabel(status: string): string {
     default:
       return 'Offen'
   }
-}
-
-function formatDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  if (
-    y === undefined ||
-    m === undefined ||
-    d === undefined ||
-    Number.isNaN(y) ||
-    Number.isNaN(m) ||
-    Number.isNaN(d)
-  ) {
-    return iso
-  }
-  // Render in Europe/Vienna — the project default. We construct the
-  // date in UTC at noon to avoid any TZ-off-by-one for events
-  // scheduled in early-morning or late-evening hours.
-  const date = new Date(Date.UTC(y, m - 1, d, 12))
-  return date.toLocaleDateString('de-DE', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'Europe/Vienna',
-  })
 }

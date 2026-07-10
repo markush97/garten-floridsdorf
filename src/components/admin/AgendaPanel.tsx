@@ -5,7 +5,6 @@ import {
   CancelSquareIcon,
   Delete02Icon,
   FileEditIcon,
-  Note01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useRef, useState } from 'react'
@@ -33,12 +32,7 @@ import type {
 } from '~func/contracts/event'
 import AgendaVoteCard from './AgendaVoteCard'
 import AttachmentUploader from './AttachmentUploader'
-
-const FIELD =
-  'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const TEXTAREA =
-  'min-h-20 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-3 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
+import { ConfirmDeleteBar, FIELD, TEXTAREA } from './form-ui'
 
 const STATUSES: readonly AgendaStatus[] = ['open', 'discussed', 'skipped']
 
@@ -48,7 +42,8 @@ export default function AgendaPanel({ event }: Props) {
   const { mutate: addItem } = useAddAgendaItem(event.slug)
   const { mutate: updateItem } = useUpdateAgendaItem(event.slug)
   const { mutate: deleteItem } = useDeleteAgendaItem(event.slug)
-  const { mutate: reorderItems } = useReorderAgendaItems(event.slug)
+  const { mutate: reorderItems, isPending: isReordering } =
+    useReorderAgendaItems(event.slug)
   const { mutate: addVote } = useAddAgendaVote(event.slug)
 
   const [newTitle, setNewTitle] = useState('')
@@ -109,6 +104,7 @@ export default function AgendaPanel({ event }: Props) {
                   index={idx}
                   isFirst={idx === 0}
                   isLast={idx === sortedItems.length - 1}
+                  isReordering={isReordering}
                   item={item}
                   onAddVote={(payload) =>
                     addVote(
@@ -199,6 +195,7 @@ type ItemProps = {
   index: number
   isFirst: boolean
   isLast: boolean
+  isReordering: boolean
   attendees: EventWithDetails['actual_attendees']
   onUpdate: (patch: {
     title?: string
@@ -217,6 +214,7 @@ function AgendaItemCard({
   index,
   isFirst,
   isLast,
+  isReordering,
   attendees,
   onUpdate,
   onDelete,
@@ -249,7 +247,7 @@ function AgendaItemCard({
             <Button
               aria-label="Agendapunkt nach oben verschieben"
               className="h-7 w-7 text-forest-700"
-              disabled={isFirst}
+              disabled={isFirst || isReordering}
               onClick={onMoveUp}
               size="icon-xs"
               type="button"
@@ -268,7 +266,7 @@ function AgendaItemCard({
             <Button
               aria-label="Agendapunkt nach unten verschieben"
               className="h-7 w-7 text-forest-700"
-              disabled={isLast}
+              disabled={isLast || isReordering}
               onClick={onMoveDown}
               size="icon-xs"
               type="button"
@@ -391,63 +389,25 @@ function AgendaItemCard({
         )}
         <NewVoteForm onSubmit={(payload) => onAddVote(payload)} />
 
-        {item.attachments.length > 0 && (
-          <>
-            <Separator />
-            <div>
-              <p className="mb-2 text-xs font-semibold text-forest-700/80">
-                Anhänge zu diesem Agendapunkt
-              </p>
-              <AttachmentUploader
-                agendaItemId={item.id}
-                attachments={item.attachments}
-                eventSlug={eventSlug}
-              />
-            </div>
-          </>
-        )}
+        <Separator />
+        <div>
+          <p className="mb-2 text-xs font-semibold text-forest-700/80">
+            Anhänge zu diesem Agendapunkt
+          </p>
+          <AttachmentUploader
+            agendaItemId={item.id}
+            attachments={item.attachments}
+            eventSlug={eventSlug}
+          />
+        </div>
       </div>
 
       {confirmDelete && (
-        <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-beet-700/10 p-3 ring-1 ring-inset ring-beet-700/30"
-          role="alertdialog"
-        >
-          <p className="text-sm text-beet-700">
-            Agendapunkt wirklich löschen? Alle Abstimmungen und Stimmen
-            verschwinden mit.
-          </p>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setConfirmDelete(false)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Abbrechen
-            </Button>
-            <Button
-              className="bg-beet-700 text-white hover:bg-beet-700/90"
-              onClick={onDelete}
-              size="sm"
-              type="button"
-            >
-              Endgültig löschen
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {item.notes && !isEditing && (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-forest-700/60">
-          <HugeiconsIcon
-            aria-hidden="true"
-            icon={Note01Icon}
-            size={12}
-            strokeWidth={1.6}
-          />
-          Notizen vorhanden
-        </p>
+        <ConfirmDeleteBar
+          message="Agendapunkt wirklich löschen? Alle Abstimmungen und Stimmen verschwinden mit."
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={onDelete}
+        />
       )}
     </div>
   )

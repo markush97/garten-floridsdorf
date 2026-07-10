@@ -142,6 +142,39 @@ export const AGENDA_STATUS_LABELS: Record<EventAgendaItem['status'], string> = {
   skipped: 'Übersprungen',
 }
 /**
+ * Formats a YYYY-MM-DD string as a German date, rendered in
+ * Europe/Vienna (the project default) regardless of the host machine's
+ * timezone. We construct the date at noon UTC so the Vienna-local
+ * calendar day can never flip to the previous/next day. Defaults to
+ * the short "15.06.2026" form; pass `options` for other shapes (e.g.
+ * a long form with weekday). Invalid input is returned unchanged.
+ */
+export function formatGermanDate(
+  isoDate: string,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  if (
+    y === undefined ||
+    m === undefined ||
+    d === undefined ||
+    Number.isNaN(y) ||
+    Number.isNaN(m) ||
+    Number.isNaN(d)
+  ) {
+    return isoDate
+  }
+  const date = new Date(Date.UTC(y, m - 1, d, 12))
+  return date.toLocaleDateString('de-DE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...options,
+    timeZone: 'Europe/Vienna',
+  })
+}
+
+/**
  * Strips HTML tags and decodes the common named entities. We use this
  * to render a plain-text preview of a transcription (which is now
  * stored as Tiptap HTML) in list views where we don't want raw markup.

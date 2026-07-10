@@ -1,8 +1,18 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { nowUtc, toVienna } from '../../_lib/dayjs'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  notInArray,
+  sql,
+} from 'drizzle-orm'
+import { nowUtc } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
 import { generateSlug } from '../../_lib/slug'
+import { normalizeOptional } from '../../_lib/strings'
 import {
   type CarryOverTaskInput,
   type CreateEventAgendaItemInput,
@@ -41,10 +51,20 @@ import {
   users,
 } from '../schema'
 
-function normalizeOptional(value: string | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
+/**
+ * Asserts that a user row exists. Used before writing user FKs that
+ * came from client input so a dangling id surfaces as a 400 instead
+ * of a D1 foreign-key constraint failure (500).
+ */
+async function assertUserExists(db: Database, userId: number): Promise<void> {
+  const user = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get()
+  if (!user) {
+    throw new AppError('VALIDATION_ERROR', 'Benutzer nicht gefunden.', 400)
+  }
 }
 
 export async function findEventOrThrow(db: Database, id: number) {
@@ -72,25 +92,6 @@ export async function listAllEvents(db: Database) {
     .select()
     .from(events)
     .orderBy(desc(events.scheduled_date), desc(events.created_at))
-    .all()
-}
-
-export async function listUpcomingEvents(db: Database) {
-  const today = toVienna(nowUtc()).format('YYYY-MM-DD')
-  return db
-    .select()
-    .from(events)
-    .orderBy(asc(events.scheduled_date), asc(events.scheduled_time))
-    .all()
-    .then((rows) => rows.filter((row) => row.scheduled_date >= today))
-}
-
-export async function listEventsForPoll(db: Database, pollId: number) {
-  return db
-    .select()
-    .from(events)
-    .where(eq(events.poll_id, pollId))
-    .orderBy(desc(events.created_at))
     .all()
 }
 
@@ -140,12 +141,7 @@ export async function findEventWithDetails(
       : await db
           .select()
           .from(event_agenda_votes)
-          .where(
-            sql`${event_agenda_votes.agenda_item_id} IN (${sql.join(
-              agendaIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`,
-          )
+          .where(inArray(event_agenda_votes.agenda_item_id, agendaIds))
           .all()
 
   const voteIds = votes.map((v) => v.id)
@@ -155,12 +151,7 @@ export async function findEventWithDetails(
       : await db
           .select()
           .from(event_agenda_vote_options)
-          .where(
-            sql`${event_agenda_vote_options.vote_id} IN (${sql.join(
-              voteIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`,
-          )
+          .where(inArray(event_agenda_vote_options.vote_id, voteIds))
           .orderBy(
             asc(event_agenda_vote_options.sort_order),
             asc(event_agenda_vote_options.id),
@@ -185,12 +176,7 @@ export async function findEventWithDetails(
             response: event_attendee_votes.response,
           })
           .from(event_attendee_votes)
-          .where(
-            sql`${event_attendee_votes.vote_id} IN (${sql.join(
-              voteIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`,
-          )
+          .where(inArray(event_attendee_votes.vote_id, voteIds))
           .all()
 
   const attendeeVotesByVote = new Map<
@@ -383,7 +369,7 @@ export async function findEventWithDetails(
     }
   })
 
-  // Tasks: fetch rows + owner users, same pattern as décisions.
+  // Tasks: fetch rows + owner users, same pattern as decisions.
   const taskRows = await db
     .select()
     .from(event_tasks)
@@ -514,6 +500,9 @@ export async function addPlannedAttendee(
   input: CreateEventAttendeeInput,
 ) {
   await findEventOrThrow(db, eventId)
+  if (input.user_id !== undefined && input.user_id !== null) {
+    await assertUserExists(db, input.user_id)
+  }
   const name = input.name.trim()
   const maxRow = await db
     .select({
@@ -545,6 +534,9 @@ export async function addActualAttendee(
   input: CreateEventAttendeeInput,
 ) {
   await findEventOrThrow(db, eventId)
+  if (input.user_id !== undefined && input.user_id !== null) {
+    await assertUserExists(db, input.user_id)
+  }
   const name = input.name.trim()
   const maxRow = await db
     .select({
@@ -603,10 +595,38 @@ export async function removeActualAttendee(
 }
 
 /**
- * Bulk-replace attendees (used by the "edit attendees" form). Removes the
- * existing rows for the event and re-inserts in the provided order. The
- * cascade on event_actual_attendees takes care of any attendee_votes that
- * point at removed rows.
+ * Validates the user FKs referenced by a bulk attendee payload so a
+ * dangling id fails as a 400 rather than a D1 constraint error.
+ */
+async function assertAttendeeUsersExist(
+  db: Database,
+  input: UpdateEventAttendeesInput,
+): Promise<void> {
+  const userIds = [
+    ...new Set(
+      input.attendees
+        .map((att) => att.user_id)
+        .filter((id): id is number => id !== null && id !== undefined),
+    ),
+  ]
+  if (userIds.length === 0) return
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, userIds))
+    .all()
+  if (rows.length !== userIds.length) {
+    throw new AppError('VALIDATION_ERROR', 'Benutzer nicht gefunden.', 400)
+  }
+}
+
+/**
+ * Bulk-edit attendees (used by the "edit attendees" form). Diffs the
+ * payload against the existing rows: entries carrying an `id` update
+ * the matching row in place, entries without an `id` are inserted,
+ * and existing rows missing from the payload are deleted. Updating
+ * in place matters for actual attendees — deleting a row would
+ * cascade away its recorded attendee votes.
  */
 export async function replacePlannedAttendees(
   db: Database,
@@ -614,36 +634,46 @@ export async function replacePlannedAttendees(
   input: UpdateEventAttendeesInput,
 ) {
   await findEventOrThrow(db, eventId)
-  await db
-    .delete(event_planned_attendees)
+  await assertAttendeeUsersExist(db, input)
+  const existing = await db
+    .select({ id: event_planned_attendees.id })
+    .from(event_planned_attendees)
     .where(eq(event_planned_attendees.event_id, eventId))
-  for (const [i, att] of input.attendees.entries()) {
-    await db.insert(event_planned_attendees).values({
-      event_id: eventId,
-      user_id: att.user_id ?? null,
-      name: att.name.trim(),
-      sort_order: i,
-    })
+    .all()
+  const existingIds = new Set(existing.map((row) => row.id))
+  const keptIds = new Set<number>()
+  for (const att of input.attendees) {
+    if (att.id === undefined) continue
+    if (!existingIds.has(att.id)) {
+      throw new AppError('VALIDATION_ERROR', 'Ungültiger Teilnehmer.', 400)
+    }
+    keptIds.add(att.id)
   }
-  return findEventWithDetails(db, eventId)
-}
-
-export async function replaceActualAttendees(
-  db: Database,
-  eventId: number,
-  input: UpdateEventAttendeesInput,
-) {
-  await findEventOrThrow(db, eventId)
-  await db
-    .delete(event_actual_attendees)
-    .where(eq(event_actual_attendees.event_id, eventId))
+  for (const row of existing) {
+    if (!keptIds.has(row.id)) {
+      await db
+        .delete(event_planned_attendees)
+        .where(eq(event_planned_attendees.id, row.id))
+    }
+  }
   for (const [i, att] of input.attendees.entries()) {
-    await db.insert(event_actual_attendees).values({
-      event_id: eventId,
-      user_id: att.user_id ?? null,
-      name: att.name.trim(),
-      sort_order: i,
-    })
+    if (att.id !== undefined) {
+      await db
+        .update(event_planned_attendees)
+        .set({
+          user_id: att.user_id ?? null,
+          name: att.name.trim(),
+          sort_order: i,
+        })
+        .where(eq(event_planned_attendees.id, att.id))
+    } else {
+      await db.insert(event_planned_attendees).values({
+        event_id: eventId,
+        user_id: att.user_id ?? null,
+        name: att.name.trim(),
+        sort_order: i,
+      })
+    }
   }
   return findEventWithDetails(db, eventId)
 }
@@ -842,6 +872,33 @@ export async function findVoteOrThrow(db: Database, voteId: number) {
   return vote
 }
 
+/**
+ * Loads a vote and verifies — via its agenda item — that it belongs
+ * to the given event. Throws 404 when the vote does not exist within
+ * that event, so URLs can't reach into other events' votes.
+ */
+async function findVoteInEventOrThrow(
+  db: Database,
+  eventId: number,
+  voteId: number,
+) {
+  const vote = await findVoteOrThrow(db, voteId)
+  const item = await db
+    .select({ id: event_agenda_items.id })
+    .from(event_agenda_items)
+    .where(
+      and(
+        eq(event_agenda_items.id, vote.agenda_item_id),
+        eq(event_agenda_items.event_id, eventId),
+      ),
+    )
+    .get()
+  if (!item) {
+    throw new AppError('NOT_FOUND', 'Abstimmung nicht gefunden', 404)
+  }
+  return vote
+}
+
 export async function findVoteWithOptionsOrThrow(db: Database, voteId: number) {
   const vote = await findVoteOrThrow(db, voteId)
   const options = await db
@@ -858,10 +915,11 @@ export async function findVoteWithOptionsOrThrow(db: Database, voteId: number) {
 
 export async function updateAgendaVote(
   db: Database,
+  eventId: number,
   voteId: number,
   input: UpdateEventAgendaVoteInput,
 ) {
-  const vote = await findVoteOrThrow(db, voteId)
+  const vote = await findVoteInEventOrThrow(db, eventId, voteId)
   const now = nowUtc()
   const updates: Partial<typeof event_agenda_votes.$inferInsert> = {
     updated_at: now,
@@ -877,7 +935,25 @@ export async function updateAgendaVote(
     .set(updates)
     .where(eq(event_agenda_votes.id, voteId))
 
-  if (input.options && vote.vote_type === 'options') {
+  if (input.options && vote.vote_type === 'yn') {
+    // Ja/Nein votes keep their two seeded option rows: apply `count`
+    // updates by id (the rows are the tally store for anonymous yn
+    // votes), but never change labels or add/remove rows.
+    const existing = await db
+      .select({ id: event_agenda_vote_options.id })
+      .from(event_agenda_vote_options)
+      .where(eq(event_agenda_vote_options.vote_id, voteId))
+      .all()
+    const existingIds = new Set(existing.map((o) => o.id))
+    for (const opt of input.options) {
+      if (opt.id === undefined || opt.count === undefined) continue
+      if (!existingIds.has(opt.id)) continue
+      await db
+        .update(event_agenda_vote_options)
+        .set({ count: opt.count })
+        .where(eq(event_agenda_vote_options.id, opt.id))
+    }
+  } else if (input.options && vote.vote_type === 'options') {
     // Replace option rows that came in without an `id` (new ones), and
     // update label/count on rows that did include their id. Any existing
     // options not referenced are removed — the admin is editing the full
@@ -922,12 +998,15 @@ export async function updateAgendaVote(
       order += 1
     }
   }
-  void vote
   return findVoteWithOptionsOrThrow(db, voteId)
 }
 
-export async function deleteAgendaVote(db: Database, voteId: number) {
-  await findVoteOrThrow(db, voteId)
+export async function deleteAgendaVote(
+  db: Database,
+  eventId: number,
+  voteId: number,
+) {
+  await findVoteInEventOrThrow(db, eventId, voteId)
   await db.delete(event_agenda_votes).where(eq(event_agenda_votes.id, voteId))
 }
 
@@ -935,36 +1014,19 @@ export async function deleteAgendaVote(db: Database, voteId: number) {
 
 export async function setAttendeeVote(
   db: Database,
+  eventId: number,
   voteId: number,
   attendeeId: number,
   input: UpdateAttendeeVoteInput,
 ) {
-  await findVoteOrThrow(db, voteId)
-  // Verify attendee belongs to the same event as the vote.
-  const vote = await db
-    .select({
-      agenda_item_id: event_agenda_votes.agenda_item_id,
-    })
-    .from(event_agenda_votes)
-    .where(eq(event_agenda_votes.id, voteId))
-    .get()
-  if (!vote) {
-    throw new AppError('NOT_FOUND', 'Abstimmung nicht gefunden', 404)
-  }
-  const item = await db
-    .select({ event_id: event_agenda_items.event_id })
-    .from(event_agenda_items)
-    .where(eq(event_agenda_items.id, vote.agenda_item_id))
-    .get()
-  if (!item) {
-    throw new AppError('NOT_FOUND', 'Agendapunkt nicht gefunden', 404)
-  }
+  await findVoteInEventOrThrow(db, eventId, voteId)
+  // Verify the attendee belongs to the same event as the vote.
   const attendee = await db
     .select()
     .from(event_actual_attendees)
     .where(eq(event_actual_attendees.id, attendeeId))
     .get()
-  if (!attendee || attendee.event_id !== item.event_id) {
+  if (!attendee || attendee.event_id !== eventId) {
     throw new AppError('VALIDATION_ERROR', 'Ungültiger Teilnehmer', 400)
   }
 
@@ -1098,11 +1160,20 @@ export async function addAttachment(
   return row
 }
 
-export async function findAttachmentOrThrow(db: Database, id: number) {
+export async function findAttachmentOrThrow(
+  db: Database,
+  eventId: number,
+  id: number,
+) {
   const row = await db
     .select()
     .from(event_attachments)
-    .where(eq(event_attachments.id, id))
+    .where(
+      and(
+        eq(event_attachments.id, id),
+        eq(event_attachments.event_id, eventId),
+      ),
+    )
     .get()
   if (!row) {
     throw new AppError('NOT_FOUND', 'Anhang nicht gefunden', 404)
@@ -1112,10 +1183,11 @@ export async function findAttachmentOrThrow(db: Database, id: number) {
 
 export async function updateAttachment(
   db: Database,
+  eventId: number,
   id: number,
   input: UpdateEventAttachmentInput,
 ) {
-  const current = await findAttachmentOrThrow(db, id)
+  const current = await findAttachmentOrThrow(db, eventId, id)
   const updates: Partial<typeof event_attachments.$inferInsert> = {}
   if (input.caption !== undefined) {
     updates.caption = normalizeOptional(input.caption)
@@ -1148,7 +1220,7 @@ export async function updateAttachment(
     .update(event_attachments)
     .set(updates)
     .where(eq(event_attachments.id, id))
-  return findAttachmentOrThrow(db, id)
+  return findAttachmentOrThrow(db, eventId, id)
 }
 
 /**
@@ -1160,24 +1232,16 @@ export async function updateAttachment(
 export async function deleteAttachment(
   db: Database,
   bucket: R2Bucket,
+  eventId: number,
   id: number,
 ) {
-  const row = await findAttachmentOrThrow(db, id)
+  const row = await findAttachmentOrThrow(db, eventId, id)
   await db.delete(event_attachments).where(eq(event_attachments.id, id))
   try {
     await bucket.delete(row.r2_key)
   } catch (err) {
     console.warn('[attachments] R2 delete failed', { r2_key: row.r2_key, err })
   }
-}
-
-export async function listEventAttachments(db: Database, eventId: number) {
-  return db
-    .select()
-    .from(event_attachments)
-    .where(eq(event_attachments.event_id, eventId))
-    .orderBy(asc(event_attachments.created_at))
-    .all()
 }
 
 // ── Decisions / Beschlüsse ───────────────────────────────────────────────
@@ -1254,6 +1318,13 @@ export async function addDecision(
         400,
       )
     }
+  }
+
+  if (input.proposer_user_id !== undefined && input.proposer_user_id !== null) {
+    await assertUserExists(db, input.proposer_user_id)
+  }
+  if (input.seconder_user_id !== undefined && input.seconder_user_id !== null) {
+    await assertUserExists(db, input.seconder_user_id)
   }
 
   const now = nowUtc()
@@ -1347,12 +1418,18 @@ export async function updateDecision(
     updates.agenda_item_id = input.agenda_item_id
   }
   if (input.proposer_user_id !== undefined) {
+    if (input.proposer_user_id !== null) {
+      await assertUserExists(db, input.proposer_user_id)
+    }
     updates.proposer_user_id = input.proposer_user_id
   }
   if (input.proposer_name !== undefined) {
     updates.proposer_name = input.proposer_name
   }
   if (input.seconder_user_id !== undefined) {
+    if (input.seconder_user_id !== null) {
+      await assertUserExists(db, input.seconder_user_id)
+    }
     updates.seconder_user_id = input.seconder_user_id
   }
   if (input.seconder_name !== undefined) {
@@ -1445,6 +1522,19 @@ export async function findOpenTasksForCarryOver(
     .limit(1)
     .get()
   if (!candidate) return []
+  const alreadyCarried = await db
+    .select({ from_task_id: event_tasks.carried_from_task_id })
+    .from(event_tasks)
+    .where(
+      and(
+        eq(event_tasks.event_id, currentEventId),
+        isNotNull(event_tasks.carried_from_task_id),
+      ),
+    )
+    .all()
+  const excludedIds = alreadyCarried
+    .map((row) => row.from_task_id)
+    .filter((id): id is number => id !== null)
   const rows = await db
     .select()
     .from(event_tasks)
@@ -1452,10 +1542,9 @@ export async function findOpenTasksForCarryOver(
       and(
         eq(event_tasks.event_id, candidate.id),
         eq(event_tasks.status, 'open'),
-        // Skip tasks that have already been carried over to the
-        // current event — we mark that via `carried_from_task_id`
-        // pointing at any task on this current event.
-        isNull(event_tasks.completed_at),
+        excludedIds.length > 0
+          ? notInArray(event_tasks.id, excludedIds)
+          : undefined,
       ),
     )
     .all()
@@ -1646,6 +1735,23 @@ export async function carryOverTask(
       'VALIDATION_ERROR',
       'Nur offene Aufgaben können mitgenommen werden.',
       400,
+    )
+  }
+  const existingCopy = await db
+    .select({ id: event_tasks.id })
+    .from(event_tasks)
+    .where(
+      and(
+        eq(event_tasks.event_id, targetEventId),
+        eq(event_tasks.carried_from_task_id, source.id),
+      ),
+    )
+    .get()
+  if (existingCopy) {
+    throw new AppError(
+      'CONFLICT',
+      'Die Aufgabe wurde bereits auf diesen Termin übernommen.',
+      409,
     )
   }
   const now = nowUtc()

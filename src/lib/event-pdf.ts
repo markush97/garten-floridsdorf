@@ -1,12 +1,12 @@
 import type { EventWithDetails } from '~func/contracts/event'
-import { summarizeVote } from './event-helpers'
+import { formatGermanDate, summarizeVote } from './event-helpers'
 
 /**
  * A single entry in the auto-generated table of contents. `level` is
  * 1 (H1), 2 (H2) or 3 (H3); `slug` is the stable anchor id we'll add to
  * the heading in the source HTML so the PDF can deep-link to it.
  */
-export type TocEntry = {
+type TocEntry = {
   level: 1 | 2 | 3
   text: string
   slug: string
@@ -60,6 +60,10 @@ export function injectHeadingIds(html: string): string {
   const entries = extractToc(html)
   let i = 0
   return html.replace(HEADING_RE, (full, level: string, inner: string) => {
+    // `extractToc` skips headings with no visible text, so we must skip
+    // them here too — consuming a TOC entry for an empty heading would
+    // shift every subsequent id onto the wrong heading.
+    if (stripTags(inner).trim().length === 0) return full
     const entry = entries[i++]
     if (!entry) return full
     return `<h${level} id="${entry.slug}">${inner}</h${level}>`
@@ -89,11 +93,19 @@ function slugifyHeading(text: string): string {
     .slice(0, 60)
 }
 
+/**
+ * TOC-specific tag stripper. Deliberately NOT `stripHtmlTags` from
+ * event-helpers: that one decodes entities, inserts spaces at tag
+ * boundaries, and collapses whitespace — all of which would change the
+ * displayed TOC text and, worse, the anchor slugs (e.g. an inline
+ * `<em>` mid-word would split the word). Here we only drop the tags
+ * and keep the raw text intact.
+ */
 function stripTags(input: string): string {
   return input.replace(/<[^>]+>/g, '')
 }
 
-export type PrintSection = {
+type PrintSection = {
   title: string
   body: string
 }
@@ -105,7 +117,7 @@ export type PrintSection = {
  * including per-item status and any votes. The transcriber's free-form
  * notes go in the body.
  */
-export function buildAgendaSection(event: EventWithDetails): PrintSection {
+function buildAgendaSection(event: EventWithDetails): PrintSection {
   const items = [...event.agenda_items].sort(
     (a, b) => a.sort_order - b.sort_order,
   )
@@ -176,7 +188,7 @@ export function buildPdfSections(ctx: PdfContext): {
   coverLines.push(`<h1 class="cover-title">${escapeHtml(event.title)}</h1>`)
   const meta: string[] = []
   meta.push(
-    `<dt>Datum</dt><dd>${escapeHtml(event.scheduled_date)}${event.scheduled_time ? ` · ${escapeHtml(event.scheduled_time)} Uhr` : ''}</dd>`,
+    `<dt>Datum</dt><dd>${escapeHtml(formatGermanDate(event.scheduled_date))}${event.scheduled_time ? ` · ${escapeHtml(event.scheduled_time)} Uhr` : ''}</dd>`,
   )
   if (event.location) {
     meta.push(`<dt>Ort</dt><dd>${escapeHtml(event.location)}</dd>`)
@@ -247,13 +259,12 @@ function buildDecisionsSection(event: EventWithDetails): PrintSection {
   const items = decisions.map((d) => {
     const proposer = d.proposer_display ?? d.proposer_name
     const seconder = d.seconder_display ?? d.seconder_name
-    const tally = d.vote_snapshot
-      ? summarizeVote(d.vote_snapshot, d.vote_snapshot.attendee_votes)
-      : null
-    const tallyHtml =
-      tally && d.vote_snapshot
-        ? renderDecisionTally(d.vote_snapshot.question, tally)
-        : ''
+    const tallyHtml = d.vote_snapshot
+      ? renderDecisionTally(
+          d.vote_snapshot.question,
+          summarizeVote(d.vote_snapshot, d.vote_snapshot.attendee_votes),
+        )
+      : ''
     return `<article class="decision">
       <header class="decision-head">
         <span class="decision-number">${escapeHtml(d.resolution_number)}</span>
@@ -303,10 +314,10 @@ function renderDecisionTally(
 }
 
 /**
- * Renders the "Aufgaben" section. Open tasks come first (sorted
- * by due date where set, then by sort_order), followed by done
- * tasks. Each row shows the title, owner, optional due date, and
- * a "aus dem letzten Treffen" badge for carried-over tasks.
+ * Renders the "Aufgaben" section. Open tasks come first (sorted by
+ * sort_order, then by id), followed by done tasks in the same order.
+ * Each row shows the title, owner, optional due date, and a
+ * "aus dem letzten Treffen" badge for carried-over tasks.
  */
 function buildTasksSection(event: EventWithDetails): PrintSection {
   const sorted = [...event.tasks].sort(
@@ -349,20 +360,6 @@ function buildTasksSection(event: EventWithDetails): PrintSection {
     )
   }
   return { title: 'Aufgaben', body: groups.join('') }
-}
-
-/**
- * Formats a YYYY-MM-DD string as a German short date ("15.06.2026").
- * The schema validates the format, so a plain Date() parse works.
- */
-function formatGermanDate(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('de-DE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
 }
 
 /**

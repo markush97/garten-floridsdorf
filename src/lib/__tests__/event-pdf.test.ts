@@ -30,6 +30,90 @@ function makeEvent(partial: Partial<EventWithDetails> = {}): EventWithDetails {
   }
 }
 
+function makeAgendaItem(
+  partial: Partial<EventWithDetails['agenda_items'][number]> = {},
+): EventWithDetails['agenda_items'][number] {
+  return {
+    id: 9,
+    event_id: 1,
+    title: 'Wasserverteiler',
+    notes: null,
+    status: 'open',
+    sort_order: 0,
+    votes: [],
+    attachments: [],
+    ...partial,
+  }
+}
+
+function makeAttachment(
+  partial: Partial<EventWithDetails['attachments'][number]> = {},
+): EventWithDetails['attachments'][number] {
+  return {
+    id: 11,
+    event_id: 1,
+    agenda_item_id: null,
+    filename: 'foto.jpg',
+    content_type: 'image/jpeg',
+    size: 1024 * 50,
+    r2_key: 'events/1/foto.jpg',
+    caption: 'Foto der Wasserleitung',
+    uploaded_by_user_id: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+    ...partial,
+  }
+}
+
+function makeDecision(
+  partial: Partial<EventWithDetails['decisions'][number]> = {},
+): EventWithDetails['decisions'][number] {
+  return {
+    id: 1,
+    event_id: 1,
+    agenda_item_id: null,
+    resolution_number: 'B-2026-001',
+    wording: 'Anschaffung eines Komposters zum Preis von 350 €.',
+    proposer_user_id: null,
+    proposer_name: null,
+    seconder_user_id: null,
+    seconder_name: null,
+    vote_id: null,
+    result_note: null,
+    sort_order: 0,
+    created_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:00:00.000Z',
+    proposer_display: null,
+    seconder_display: null,
+    vote_snapshot: null,
+    ...partial,
+  }
+}
+
+function makeTask(
+  partial: Partial<EventWithDetails['tasks'][number]> = {},
+): EventWithDetails['tasks'][number] {
+  return {
+    id: 1,
+    event_id: 1,
+    agenda_item_id: null,
+    title: 'Schlüssel bei Tom abholen',
+    owner_user_id: null,
+    owner_name: null,
+    due_date: null,
+    status: 'open',
+    carried_from_event_id: null,
+    carried_from_task_id: null,
+    notes: null,
+    sort_order: 0,
+    completed_at: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:00:00.000Z',
+    owner_display: null,
+    is_carried_over: false,
+    ...partial,
+  }
+}
+
 describe('extractToc', () => {
   it('returns an empty array for an empty string', () => {
     expect(extractToc('')).toEqual([])
@@ -115,6 +199,17 @@ describe('injectHeadingIds', () => {
     const out = injectHeadingIds(html)
     expect(out).toBe('<p>Kein Heading.</p><h1 id="titel">Titel</h1>')
   })
+
+  it('skips empty headings without shifting later ids', () => {
+    // Regression: `extractToc` skips empty headings, so consuming a TOC
+    // entry for them here used to assign every later id one heading
+    // too early.
+    const html = '<h1>Titel</h1><h2> </h2><h3><em></em></h3><h2>Zweiter</h2>'
+    const out = injectHeadingIds(html)
+    expect(out).toBe(
+      '<h1 id="titel">Titel</h1><h2> </h2><h3><em></em></h3><h2 id="zweiter">Zweiter</h2>',
+    )
+  })
 })
 
 describe('buildPdfSections', () => {
@@ -131,16 +226,10 @@ describe('buildPdfSections', () => {
         },
       ],
       agenda_items: [
-        {
-          id: 9,
-          event_id: 1,
-          title: 'Wasserverteiler',
+        makeAgendaItem({
           notes: 'Reparatur beauftragt',
           status: 'discussed',
-          sort_order: 0,
-          votes: [],
-          attachments: [],
-        },
+        }),
       ],
     })
     const sections = buildPdfSections({
@@ -150,6 +239,9 @@ describe('buildPdfSections', () => {
 
     expect(sections.cover.body).toContain('Gartentreffen Juni')
     expect(sections.cover.body).toContain('Maria')
+    // The cover date is formatted for de-DE, not raw ISO.
+    expect(sections.cover.body).toContain('15.06.2026')
+    expect(sections.cover.body).not.toContain('2026-06-15')
     expect(sections.toc).toHaveLength(2)
     expect(sections.agenda.body).toContain('Wasserverteiler')
     expect(sections.agenda.body).toContain('✓')
@@ -171,26 +263,13 @@ describe('buildPdfSections', () => {
     const sections = buildPdfSections({
       event: makeEvent({
         agenda_items: [
-          {
-            id: 1,
-            event_id: 1,
-            title: 'Offen',
-            notes: null,
-            status: 'open',
-            sort_order: 0,
-            votes: [],
-            attachments: [],
-          },
-          {
+          makeAgendaItem({ id: 1, title: 'Offen', status: 'open' }),
+          makeAgendaItem({
             id: 2,
-            event_id: 1,
             title: 'Übersprungen',
-            notes: null,
             status: 'skipped',
             sort_order: 1,
-            votes: [],
-            attachments: [],
-          },
+          }),
         ],
       }),
       transcriptionHtml: '',
@@ -201,30 +280,16 @@ describe('buildPdfSections', () => {
 })
 
 describe('buildPdfSections attachments', () => {
-  const imageAtt = {
-    id: 11,
-    event_id: 1,
-    agenda_item_id: null,
-    filename: 'foto.jpg',
-    content_type: 'image/jpeg',
-    size: 1024 * 50,
-    r2_key: 'events/1/foto.jpg',
-    caption: 'Foto der Wasserleitung',
-    uploaded_by_user_id: null,
-    created_at: '2026-06-10T00:00:00.000Z',
-  }
-  const pdfAtt = {
+  const imageAtt = makeAttachment()
+  const pdfAtt = makeAttachment({
     id: 12,
-    event_id: 1,
     agenda_item_id: 9,
     filename: 'rechnung.pdf',
     content_type: 'application/pdf',
     size: 1024 * 200,
     r2_key: 'events/1/rechnung.pdf',
     caption: 'Materialrechnung',
-    uploaded_by_user_id: null,
-    created_at: '2026-06-10T00:00:00.000Z',
-  }
+  })
 
   it('returns an empty body when there are no attachments', () => {
     const sections = buildPdfSections({
@@ -239,18 +304,7 @@ describe('buildPdfSections attachments', () => {
     const sections = buildPdfSections({
       event: makeEvent({
         attachments: [imageAtt],
-        agenda_items: [
-          {
-            id: 9,
-            event_id: 1,
-            title: 'Wasserverteiler',
-            notes: null,
-            status: 'open',
-            sort_order: 0,
-            votes: [],
-            attachments: [pdfAtt],
-          },
-        ],
+        agenda_items: [makeAgendaItem({ attachments: [pdfAtt] })],
       }),
       transcriptionHtml: '',
     })
@@ -299,96 +353,14 @@ describe('buildPdfSections attachments', () => {
       `/api/admin/events/garten-juni/attachments/${pdfAtt.id}/download`,
     )
   })
-
-  it('escapes filenames and captions to prevent HTML injection', () => {
-    const evilAtt = {
-      ...imageAtt,
-      id: 99,
-      filename: '<script>alert(1)</script>.jpg',
-      caption: '"><img src=x onerror=alert(1)>',
-    }
-    const sections = buildPdfSections({
-      event: makeEvent({ attachments: [evilAtt] }),
-      transcriptionHtml: '',
-    })
-    expect(sections.attachments.body).not.toContain('<script>')
-    expect(sections.attachments.body).toContain('&lt;script&gt;')
-  })
-})
-
-describe('buildPrintDocument', () => {
-  it('returns a self-contained HTML document', () => {
-    const html = buildPrintDocument({
-      event: makeEvent(),
-      transcriptionHtml: '<h1>Titel</h1><p>Text</p>',
-    })
-    expect(html).toMatch(/^<!doctype html>/i)
-    expect(html).toContain('Gartentreffen Juni')
-    expect(html).toContain('<style>')
-    expect(html).toContain('Inhalt')
-    expect(html).toContain('id="titel"')
-  })
-
-  it('omits the TOC section when there are no headings', () => {
-    const html = buildPrintDocument({
-      event: makeEvent(),
-      transcriptionHtml: '<p>Kein Heading.</p>',
-    })
-    expect(html).not.toContain('<section class="toc">')
-  })
-
-  it('renders an Anhänge section when the event has attachments', () => {
-    const event = makeEvent({
-      attachments: [
-        {
-          id: 11,
-          event_id: 1,
-          agenda_item_id: null,
-          filename: 'foto.jpg',
-          content_type: 'image/jpeg',
-          size: 1024,
-          r2_key: 'k',
-          caption: 'Foto',
-          uploaded_by_user_id: null,
-          created_at: '2026-06-10T00:00:00.000Z',
-        },
-      ],
-    })
-    const html = buildPrintDocument({ event, transcriptionHtml: '' })
-    expect(html).toContain('attachments-section')
-    expect(html).toContain('Anhänge')
-    expect(html).toContain('Allgemein')
-    expect(html).toContain('foto.jpg')
-  })
-
-  it('omits the Anhänge section when there are no attachments', () => {
-    const html = buildPrintDocument({
-      event: makeEvent(),
-      transcriptionHtml: '',
-    })
-    // The CSS rule `.attachments-section h2` lives in the stylesheet;
-    // we check for the actual <section> tag instead so the assertion
-    // doesn't get tripped up by the stylesheet copy.
-    expect(html).not.toContain('<section class="attachments-section">')
-  })
 })
 
 describe('buildPdfSections decisions', () => {
-  const decisionWithVote = {
-    id: 1,
-    event_id: 1,
+  const decisionWithVote = makeDecision({
     agenda_item_id: 9,
-    resolution_number: 'B-2026-001',
-    wording: 'Anschaffung eines Komposters zum Preis von 350 €.',
     proposer_user_id: 3,
-    proposer_name: null,
     seconder_user_id: 4,
-    seconder_name: null,
     vote_id: 42,
-    result_note: null,
-    sort_order: 0,
-    created_at: '2026-06-10T00:00:00.000Z',
-    updated_at: '2026-06-10T00:00:00.000Z',
     proposer_display: 'Maria Hinkel',
     seconder_display: 'Tom S.',
     vote_snapshot: {
@@ -406,23 +378,15 @@ describe('buildPdfSections decisions', () => {
         { attendee_id: 3, option_id: null, response: false },
       ],
     },
-  }
-  const freeTextDecision = {
-    ...decisionWithVote,
+  })
+  const freeTextDecision = makeDecision({
     id: 2,
     resolution_number: 'B-2026-002',
-    agenda_item_id: null,
-    proposer_user_id: null,
     proposer_name: 'Oma (Gast)',
-    seconder_user_id: null,
     seconder_name: 'Onkel Klaus',
-    proposer_display: null,
-    seconder_display: null,
-    vote_id: null,
-    vote_snapshot: null,
     result_note: 'einstimmig angenommen',
     sort_order: 1,
-  }
+  })
 
   it('returns an empty body when there are no decisions', () => {
     const sections = buildPdfSections({
@@ -467,99 +431,30 @@ describe('buildPdfSections decisions', () => {
     expect(sections.cover.body).toContain('B-2026-001')
     expect(sections.cover.body).toContain('B-2026-002')
   })
-
-  it('escapes wording and captions to prevent HTML injection', () => {
-    const evil = {
-      ...decisionWithVote,
-      wording: '<script>alert(1)</script>',
-    }
-    const sections = buildPdfSections({
-      event: makeEvent({ decisions: [evil] }),
-      transcriptionHtml: '',
-    })
-    expect(sections.decisions.body).not.toContain('<script>')
-    expect(sections.decisions.body).toContain('&lt;script&gt;')
-  })
-})
-
-describe('buildPrintDocument decisions', () => {
-  it('renders the Beschlüsse section when decisions exist', () => {
-    const decision = {
-      id: 1,
-      event_id: 1,
-      agenda_item_id: null,
-      resolution_number: 'B-2026-001',
-      wording: 'Test.',
-      proposer_user_id: null,
-      proposer_name: 'Oma',
-      seconder_user_id: null,
-      seconder_name: 'Klaus',
-      vote_id: null,
-      result_note: null,
-      sort_order: 0,
-      created_at: '2026-06-10T00:00:00.000Z',
-      updated_at: '2026-06-10T00:00:00.000Z',
-      proposer_display: null,
-      seconder_display: null,
-      vote_snapshot: null,
-    }
-    const html = buildPrintDocument({
-      event: makeEvent({ decisions: [decision] }),
-      transcriptionHtml: '',
-    })
-    // Check the actual <section> tag rather than the CSS class name
-    // (the stylesheet also contains "decisions-section").
-    expect(html).toContain('<section class="decisions-section">')
-    expect(html).toContain('B-2026-001')
-  })
-
-  it('omits the Beschlüsse section when no decisions exist', () => {
-    const html = buildPrintDocument({
-      event: makeEvent(),
-      transcriptionHtml: '',
-    })
-    expect(html).not.toContain('<section class="decisions-section">')
-  })
 })
 
 describe('buildPdfSections tasks', () => {
-  const openTask = {
-    id: 1,
-    event_id: 1,
-    agenda_item_id: null,
-    title: 'Schlüssel bei Tom abholen',
+  const openTask = makeTask({
     owner_user_id: 3,
-    owner_name: null,
     due_date: '2026-07-01',
-    status: 'open' as const,
-    carried_from_event_id: null,
-    carried_from_task_id: null,
     notes: 'Bitte vor dem nächsten Treffen erledigen.',
-    sort_order: 0,
-    completed_at: null,
-    created_at: '2026-06-10T00:00:00.000Z',
-    updated_at: '2026-06-10T00:00:00.000Z',
     owner_display: 'Maria Hinkel',
-    is_carried_over: false,
-  }
-  const carriedTask = {
-    ...openTask,
+  })
+  const carriedTask = makeTask({
     id: 2,
     title: 'Werkzeug aufräumen',
-    status: 'open' as const,
     sort_order: 1,
     carried_from_event_id: 1,
     carried_from_task_id: 99,
     is_carried_over: true,
-  }
-  const doneTask = {
-    ...openTask,
+  })
+  const doneTask = makeTask({
     id: 3,
     title: 'Liste verschickt',
-    status: 'done' as const,
+    status: 'done',
     sort_order: 2,
     completed_at: '2026-06-09T00:00:00.000Z',
-  }
+  })
 
   it('returns an empty body when there are no tasks', () => {
     const sections = buildPdfSections({
@@ -587,8 +482,8 @@ describe('buildPdfSections tasks', () => {
       transcriptionHtml: '',
     })
     expect(sections.tasks.body).toContain('Maria Hinkel')
-    // The due date is formatted as DD.MM.YYYY in de-DE locale.
-    expect(sections.tasks.body).toMatch(/bis 0[17]\.07\.2026/)
+    // Formatted in Europe/Vienna regardless of the host timezone.
+    expect(sections.tasks.body).toContain('bis 01.07.2026')
   })
 
   it('marks carried-over tasks with a badge', () => {
@@ -608,59 +503,80 @@ describe('buildPdfSections tasks', () => {
     // 2 open (openTask + carriedTask), 1 carried
     expect(sections.cover.body).toMatch(/Aufgaben.*1 aus dem letzten Treffen/)
   })
-
-  it('escapes titles and notes to prevent HTML injection', () => {
-    const evil = {
-      ...openTask,
-      title: '<script>alert(1)</script>',
-      notes: '"><img src=x onerror=alert(1)>',
-    }
-    const sections = buildPdfSections({
-      event: makeEvent({ tasks: [evil] }),
-      transcriptionHtml: '',
-    })
-    expect(sections.tasks.body).not.toContain('<script>')
-    expect(sections.tasks.body).toContain('&lt;script&gt;')
-  })
 })
 
-describe('buildPrintDocument tasks', () => {
-  it('renders the Aufgaben section when tasks exist', () => {
-    const html = buildPrintDocument({
+describe('buildPdfSections escaping', () => {
+  it('escapes user-provided strings in attachments, decisions, and tasks', () => {
+    const script = '<script>alert(1)</script>'
+    const attribute = '"><img src=x onerror=alert(1)>'
+    const sections = buildPdfSections({
       event: makeEvent({
-        tasks: [
-          {
-            id: 1,
-            event_id: 1,
-            agenda_item_id: null,
-            title: 'Test.',
-            owner_user_id: null,
-            owner_name: 'Oma',
-            due_date: null,
-            status: 'open' as const,
-            carried_from_event_id: null,
-            carried_from_task_id: null,
-            notes: null,
-            sort_order: 0,
-            completed_at: null,
-            created_at: '2026-06-10T00:00:00.000Z',
-            updated_at: '2026-06-10T00:00:00.000Z',
-            owner_display: null,
-            is_carried_over: false,
-          },
+        attachments: [
+          makeAttachment({ filename: `${script}.jpg`, caption: attribute }),
         ],
+        decisions: [makeDecision({ wording: script })],
+        tasks: [makeTask({ title: script, notes: attribute })],
       }),
       transcriptionHtml: '',
     })
-    expect(html).toContain('<section class="tasks-section">')
-    expect(html).toContain('Test.')
+    for (const body of [
+      sections.attachments.body,
+      sections.decisions.body,
+      sections.tasks.body,
+    ]) {
+      expect(body).not.toContain('<script>')
+      expect(body).toContain('&lt;script&gt;')
+    }
+  })
+})
+
+describe('buildPrintDocument', () => {
+  it('returns a self-contained HTML document', () => {
+    const html = buildPrintDocument({
+      event: makeEvent(),
+      transcriptionHtml: '<h1>Titel</h1><p>Text</p>',
+    })
+    expect(html).toMatch(/^<!doctype html>/i)
+    expect(html).toContain('Gartentreffen Juni')
+    expect(html).toContain('<style>')
+    expect(html).toContain('Inhalt')
+    expect(html).toContain('id="titel"')
   })
 
-  it('omits the Aufgaben section when no tasks exist', () => {
+  it('omits the TOC section when there are no headings', () => {
+    const html = buildPrintDocument({
+      event: makeEvent(),
+      transcriptionHtml: '<p>Kein Heading.</p>',
+    })
+    expect(html).not.toContain('<section class="toc">')
+  })
+
+  it('renders the Anhänge, Beschlüsse, and Aufgaben sections when populated', () => {
+    const html = buildPrintDocument({
+      event: makeEvent({
+        attachments: [makeAttachment()],
+        decisions: [makeDecision()],
+        tasks: [makeTask()],
+      }),
+      transcriptionHtml: '',
+    })
+    // Check the actual <section> tags rather than the CSS class names —
+    // the inlined stylesheet contains the class names either way.
+    expect(html).toContain('<section class="attachments-section">')
+    expect(html).toContain('foto.jpg')
+    expect(html).toContain('<section class="decisions-section">')
+    expect(html).toContain('B-2026-001')
+    expect(html).toContain('<section class="tasks-section">')
+    expect(html).toContain('Schlüssel bei Tom abholen')
+  })
+
+  it('omits the optional sections when the event has no content for them', () => {
     const html = buildPrintDocument({
       event: makeEvent(),
       transcriptionHtml: '',
     })
+    expect(html).not.toContain('<section class="attachments-section">')
+    expect(html).not.toContain('<section class="decisions-section">')
     expect(html).not.toContain('<section class="tasks-section">')
   })
 })

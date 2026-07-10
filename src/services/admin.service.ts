@@ -30,16 +30,6 @@ export function useAdminPolls() {
   })
 }
 
-export function useAdminLogin() {
-  return useMutation({
-    mutationFn: (password: string) =>
-      apiClient<{ ok: boolean }>('/admin/login', {
-        method: 'POST',
-        body: { password },
-      }),
-  })
-}
-
 export function useCreatePoll() {
   const queryClient = useQueryClient()
   return useMutation({

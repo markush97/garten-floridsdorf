@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { formatGermanDate } from '~/lib/event-helpers'
 import { cn } from '~/lib/ui-utils'
 import {
   useCarryOverCandidates,
@@ -20,6 +21,7 @@ import {
 import { useAdminUsers } from '~/services/user.service'
 import { Badge } from '~/ui/badge'
 import { Button } from '~/ui/button'
+import { DatePicker } from '~/ui/date-picker'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 import { Separator } from '~/ui/separator'
@@ -29,15 +31,14 @@ import type {
   EventWithDetails,
   UpdateEventTaskInput,
 } from '~func/contracts/event'
-
-const FIELD =
-  'w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-2.5 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const TEXTAREA =
-  'min-h-20 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 py-3 text-base text-forest-900 placeholder:text-forest-700/45 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
-
-const SELECT =
-  'h-11 w-full rounded-2xl border border-forest-900/12 bg-white/80 px-4 text-base text-forest-900 focus-visible:border-forest-700 focus-visible:ring-2 focus-visible:ring-forest-700/30 focus-visible:outline-none'
+import {
+  ConfirmDeleteBar,
+  FIELD,
+  PersonPicker,
+  parseIsoDate,
+  TEXTAREA,
+  toIsoDate,
+} from './form-ui'
 
 type Props = { event: EventWithDetails }
 
@@ -48,7 +49,7 @@ const TASK_STATUS_LABELS: Record<EventTask['status'], string> = {
 
 export default function TasksPanel({ event }: Props) {
   const { data: users } = useAdminUsers()
-  const { data: carryOverCandidates } = useCarryOverCandidates(event.slug, true)
+  const { data: carryOverCandidates } = useCarryOverCandidates(event.slug)
   const { mutate: createTask, isPending: isCreating } = useCreateTask(
     event.slug,
   )
@@ -157,7 +158,6 @@ export default function TasksPanel({ event }: Props) {
       <Separator />
 
       <NewTaskForm
-        agendaItems={event.agenda_items}
         isPending={isCreating}
         onSubmit={(data) =>
           createTask(data, {
@@ -192,8 +192,8 @@ function TaskCard({
   if (isEditing) {
     return (
       <TaskForm
-        agendaItems={[]}
         initial={{
+          id: task.id,
           title: task.title,
           owner_user_id: task.owner_user_id,
           owner_name: task.owner_name,
@@ -322,7 +322,7 @@ function TaskCard({
                 size={12}
                 strokeWidth={1.6}
               />
-              {formatDate(task.due_date)}
+              {formatGermanDate(task.due_date)}
             </dd>
           </div>
         )}
@@ -334,34 +334,15 @@ function TaskCard({
       )}
 
       {confirmDelete && (
-        <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-beet-700/10 p-3 ring-1 ring-inset ring-beet-700/30"
-          role="alertdialog"
-        >
-          <p className="text-sm text-beet-700">Aufgabe wirklich löschen?</p>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setConfirmDelete(false)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Abbrechen
-            </Button>
-            <Button
-              className="bg-beet-700 text-white hover:bg-beet-700/90"
-              disabled={isDeleting}
-              onClick={() => {
-                onDelete()
-                setConfirmDelete(false)
-              }}
-              size="sm"
-              type="button"
-            >
-              Endgültig löschen
-            </Button>
-          </div>
-        </div>
+        <ConfirmDeleteBar
+          isPending={isDeleting}
+          message="Aufgabe wirklich löschen?"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            onDelete()
+            setConfirmDelete(false)
+          }}
+        />
       )}
     </div>
   )
@@ -382,6 +363,7 @@ function StatusBadge({ status }: { status: EventTask['status'] }) {
 }
 
 type TaskFormInitial = {
+  id: number
   title: string
   owner_user_id: number | null
   owner_name: string | null
@@ -392,7 +374,6 @@ type TaskFormInitial = {
 type TaskFormProps = {
   initial?: TaskFormInitial
   users: Array<{ id: number; first_name: string; last_name: string }>
-  agendaItems: EventWithDetails['agenda_items']
   isPending: boolean
   onCancel?: () => void
   onSubmit: (data: CreateEventTaskInput | UpdateEventTaskInput) => void
@@ -412,12 +393,15 @@ function TaskForm({
     initial?.owner_user_id ?? '',
   )
   const [ownerName, setOwnerName] = useState(initial?.owner_name ?? '')
-  const [dueDate, setDueDate] = useState(initial?.due_date ?? '')
+  const [dueDate, setDueDate] = useState<Date | undefined>(
+    initial?.due_date ? parseIsoDate(initial.due_date) : undefined,
+  )
   const [notes, setNotes] = useState(initial?.notes ?? '')
 
   const userOptions = users
     .slice()
     .sort((a, b) => a.last_name.localeCompare(b.last_name))
+  const idPrefix = initial ? String(initial.id) : 'new'
 
   function handleSubmit() {
     if (!title.trim()) {
@@ -433,7 +417,7 @@ function TaskForm({
       title: title.trim(),
       owner_user_id: ownerUserId === '' ? null : ownerUserId,
       owner_name: ownerName.trim() ? ownerName.trim() : null,
-      due_date: dueDate.trim() ? dueDate.trim() : null,
+      due_date: dueDate ? toIsoDate(dueDate) : null,
       notes: notes.trim() ? notes.trim() : null,
     })
   }
@@ -441,10 +425,10 @@ function TaskForm({
   return (
     <div className="rounded-[1.25rem] bg-forest-900/4 p-4 ring-1 ring-inset ring-forest-900/8 sm:p-5">
       <div className="space-y-1.5">
-        <Label htmlFor={`task-title-${initial?.title ?? 'new'}`}>Aufgabe</Label>
+        <Label htmlFor={`task-title-${idPrefix}`}>Aufgabe</Label>
         <Input
           className={FIELD}
-          id={`task-title-${initial?.title ?? 'new'}`}
+          id={`task-title-${idPrefix}`}
           maxLength={300}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={'z. B. „Werkstatt-Schlüssel bei Tom abholen.“'}
@@ -452,56 +436,32 @@ function TaskForm({
         />
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <PersonPicker
+          freeTextValue={ownerName}
+          idPrefix={`task-owner-${idPrefix}`}
+          label="Zuständig"
+          onFreeTextChange={setOwnerName}
+          onUserChange={(v) => {
+            setOwnerUserId(v)
+            if (v !== '') setOwnerName('')
+          }}
+          userValue={ownerUserId}
+          users={userOptions}
+        />
         <div className="space-y-1.5">
-          <Label htmlFor={`task-owner-user-${initial?.title ?? 'new'}`}>
-            Zuständig (Benutzer)
-          </Label>
-          <select
-            className={SELECT}
-            id={`task-owner-user-${initial?.title ?? 'new'}`}
-            onChange={(e) => {
-              const v = e.target.value === '' ? '' : Number(e.target.value)
-              setOwnerUserId(v)
-              if (v !== '') setOwnerName('')
-            }}
-            value={ownerUserId}
-          >
-            <option value="">— kein Benutzer —</option>
-            {userOptions.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.first_name} {u.last_name}
-              </option>
-            ))}
-          </select>
-          <Input
-            className={FIELD}
-            id={`task-owner-name-${initial?.title ?? 'new'}`}
-            maxLength={200}
-            onChange={(e) => setOwnerName(e.target.value)}
-            placeholder="Name (kein Benutzer)"
-            value={ownerName}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={`task-due-${initial?.title ?? 'new'}`}>
-            Frist (optional)
-          </Label>
-          <Input
-            className={FIELD}
-            id={`task-due-${initial?.title ?? 'new'}`}
-            onChange={(e) => setDueDate(e.target.value)}
-            type="date"
-            value={dueDate ?? ''}
+          <Label>Frist (optional)</Label>
+          <DatePicker
+            onChange={setDueDate}
+            placeholder="Kein Datum"
+            value={dueDate}
           />
         </div>
       </div>
       <div className="mt-3 space-y-1.5">
-        <Label htmlFor={`task-notes-${initial?.title ?? 'new'}`}>
-          Notizen (optional)
-        </Label>
+        <Label htmlFor={`task-notes-${idPrefix}`}>Notizen (optional)</Label>
         <textarea
           className={TEXTAREA}
-          id={`task-notes-${initial?.title ?? 'new'}`}
+          id={`task-notes-${idPrefix}`}
           maxLength={50000}
           onChange={(e) => setNotes(e.target.value)}
           value={notes}
@@ -529,7 +489,6 @@ function TaskForm({
 
 function NewTaskForm(props: {
   users: Array<{ id: number; first_name: string; last_name: string }>
-  agendaItems: EventWithDetails['agenda_items']
   isPending: boolean
   onSubmit: (data: CreateEventTaskInput) => void
 }) {
@@ -627,7 +586,7 @@ function CarryOverPanel({
                 <p className="text-sm font-medium text-forest-900">{c.title}</p>
                 <p className="text-xs text-forest-700/70">
                   {ownerLabel ? `Zuständig: ${ownerLabel}` : 'Ohne Zuständige'}
-                  {c.due_date && ` · Frist ${formatDate(c.due_date)}`}
+                  {c.due_date && ` · Frist ${formatGermanDate(c.due_date)}`}
                 </p>
               </div>
               <Button
@@ -653,15 +612,4 @@ function CarryOverPanel({
       </ul>
     </section>
   )
-}
-
-function formatDate(iso: string): string {
-  // The schema enforces YYYY-MM-DD, so a plain Date() works.
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('de-DE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
 }
