@@ -63,6 +63,31 @@ export function useAdminEvent(slug: string) {
   })
 }
 
+// ── Member-facing (read-only) ────────────────────────────────────────────
+
+export function useMemberEvents() {
+  return useQuery({
+    queryKey: queryKeys.events.member,
+    queryFn: () => apiClient<Event[]>('/events'),
+    retry: (count, err) => {
+      if ((err as { status?: number }).status === 401) return false
+      return count < 1
+    },
+  })
+}
+
+export function useMemberEvent(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.events.memberDetail(slug),
+    queryFn: () => apiClient<EventWithDetails>(`/events/${slug}`),
+    retry: (count, err) => {
+      if ((err as { status?: number }).status === 404) return false
+      if ((err as { status?: number }).status === 401) return false
+      return count < 1
+    },
+  })
+}
+
 export function useCreateEvent() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -121,22 +146,6 @@ export function useReplacePlannedAttendees(slug: string) {
   return useMutation({
     mutationFn: (data: UpdateEventAttendeesInput) =>
       apiClient<EventWithDetails>(`/admin/events/${slug}/planned-attendees`, {
-        method: 'PUT',
-        body: data,
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.events.detail(slug),
-      })
-    },
-  })
-}
-
-export function useReplaceActualAttendees(slug: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: UpdateEventAttendeesInput) =>
-      apiClient<EventWithDetails>(`/admin/events/${slug}/actual-attendees`, {
         method: 'PUT',
         body: data,
       }),
@@ -504,7 +513,7 @@ export function useDeleteDecision(slug: string) {
  * admin can carry over into this one. Used to render the "Aus dem
  * letzten Treffen mitgenommen" panel above the active task list.
  */
-export function useCarryOverCandidates(slug: string, enabled: boolean) {
+export function useCarryOverCandidates(slug: string, enabled = true) {
   return useQuery({
     enabled,
     queryKey: [...queryKeys.events.detail(slug), 'carry-over'] as const,
