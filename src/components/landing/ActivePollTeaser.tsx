@@ -40,7 +40,7 @@ function ActivePollTeaser() {
         <div className="space-y-4 sm:space-y-5">
           <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-leaf-500 ring-1 ring-inset ring-leaf-500/30 backdrop-blur">
             <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={2} />
-            Aktuelle Umfrage
+            Aktuelle Terminabstimmung
           </p>
 
           {isPending ? (
@@ -96,7 +96,7 @@ function ActivePollTeaser() {
               </p>
             </div>
             <p className="mt-4">
-              Der Admin kann jederzeit eine neue Umfrage anlegen. Alle
+              Der Admin kann jederzeit eine neue Terminabstimmung anlegen. Alle
               Familienmitglieder können dann mit Name, Ja, Nein oder Vielleicht
               antworten.
             </p>

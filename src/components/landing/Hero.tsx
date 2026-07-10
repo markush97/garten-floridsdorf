@@ -155,7 +155,7 @@ function Hero() {
               className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-cream-50 px-6 text-sm font-semibold text-forest-900 shadow-[0_12px_30px_rgba(245,240,225,0.18)] hover:shadow-[0_18px_40px_rgba(122,181,46,0.35)] sm:text-base"
               href="#aktuelle-umfrage"
             >
-              Zur aktuellen Umfrage
+              Zur aktuellen Terminabstimmung
               <span className="inline-flex animate-nudge-right group-hover:animate-none">
                 <HugeiconsIcon icon={ArrowRight01Icon} className="h-4 w-4" />
               </span>
