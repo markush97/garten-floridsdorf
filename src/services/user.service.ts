@@ -49,17 +49,25 @@ export function useUpdateUser(slug: string) {
         method: 'PATCH',
         body: data,
       }),
-    onSuccess: (user) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.admin })
       void queryClient.invalidateQueries({
         queryKey: queryKeys.users.detail(slug),
       })
-      // The slug may have been regenerated on rename, so invalidate by
-      // the new slug too — otherwise the next visit to that detail would
-      // hit a stale cache.
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.users.detail(user.slug),
-      })
+    },
+  })
+}
+
+export function useInviteUser() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (slug: string) =>
+      apiClient<{ url: string; expires_at: string }>(
+        `/admin/users/${slug}/invite`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users.admin })
     },
   })
 }

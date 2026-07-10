@@ -1,15 +1,35 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import {
+  type AuthVariables,
+  clearSessionCookie,
+  getSession,
   requireAdmin,
-  setAdminCookie,
-  signAdminToken,
-  verifyPassword,
+  requireAuth,
+  type Session,
+  setSessionCookie,
+  signSessionToken,
 } from '../functions/_lib/auth'
 import { createDb } from '../functions/_lib/db'
-import { AppError, makeError } from '../functions/_lib/errors'
+import { sendMagicLinkEmail } from '../functions/_lib/email'
+import { AppError, makeError, zodErrorMessage } from '../functions/_lib/errors'
 import { buildEventIcal, ICAL_CONTENT_TYPE } from '../functions/_lib/ical'
-import { isValidShareTokenShape } from '../functions/_lib/share-token'
+import { hashPassword, verifyPassword } from '../functions/_lib/password'
+import { hashToken, isValidTokenShape } from '../functions/_lib/token'
+import {
+  acceptInviteInputSchema,
+  loginInputSchema,
+  magicLinkRequestInputSchema,
+  type SessionUser,
+} from '../functions/contracts/auth'
+import {
+  createDocumentShareTokenInputSchema,
+  createFolderInputSchema,
+  isAllowedDocumentContentType,
+  MAX_DOCUMENT_SIZE_BYTES,
+  updateDocumentInputSchema,
+  updateFolderInputSchema,
+} from '../functions/contracts/document'
 import {
   carryOverTaskInputSchema,
   createEventAgendaItemInputSchema,
@@ -33,7 +53,6 @@ import {
 } from '../functions/contracts/event'
 import {
   addPollOptionsInputSchema,
-  adminLoginInputSchema,
   createPollInputSchema,
   finalizePollInputSchema,
   submitVotesInputSchema,
@@ -42,6 +61,35 @@ import {
   createUserInputSchema,
   updateUserInputSchema,
 } from '../functions/contracts/user'
+import {
+  activateUser,
+  consumeAuthToken,
+  createAuthToken,
+  enforceRateLimit,
+  findActivatedUsersByEmail,
+  findUserByUsername,
+  resolveAuthToken,
+} from '../functions/db/queries/auth'
+import {
+  createDocumentShareToken,
+  isDocumentShareTokenActive,
+  listDocumentShareTokens,
+  listFolderShareTokens,
+  resolveDocumentShareToken,
+  revokeDocumentShareToken,
+} from '../functions/db/queries/document-share-tokens'
+import {
+  addDocument,
+  browseFolder,
+  createFolder,
+  deleteDocument,
+  deleteFolder,
+  findDocumentOrThrow,
+  findFolderOrThrow,
+  listAllFolders,
+  updateDocument,
+  updateFolder,
+} from '../functions/db/queries/documents'
 import {
   addActualAttendee,
   addAgendaItem,
@@ -67,7 +115,6 @@ import {
   removeActualAttendee,
   removePlannedAttendee,
   reorderAgendaItems,
-  replaceActualAttendees,
   replacePlannedAttendees,
   setAttendeeVote,
   updateAgendaItem,
@@ -102,15 +149,33 @@ import {
   listAllUsers,
   updateUser,
 } from '../functions/db/queries/users'
-import { ip_vote_counts } from '../functions/db/schema'
+import {
+  type DocumentShareTokenRow,
+  ip_vote_counts,
+} from '../functions/db/schema'
 
 type AppEnv = {
   Bindings: {
     DB: D1Database
-    ADMIN_PASSWORD: string
+    ADMIN_PASSWORD?: string
     JWT_SECRET: string
     ATTACHMENTS: R2Bucket
+    RESEND_API_KEY?: string
+    EMAIL_FROM?: string
   }
+  Variables: AuthVariables
+}
+
+function clientIp(c: Context<AppEnv>): string {
+  return (
+    c.req.header('CF-Connecting-IP') ??
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
+    'unknown'
+  )
+}
+
+function sessionUser(session: Session): SessionUser {
+  return { user_id: session.userId, name: session.name, role: session.role }
 }
 
 const app = new Hono<AppEnv>().basePath('/api')
@@ -177,16 +242,16 @@ app.post('/polls/:slug/votes', async (c) => {
   const body = await c.req.json()
   const parsed = submitVotesInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const poll = await findPollWithDetailsBySlug(db, slug)
 
   const VOTE_LIMIT = 5
-  const ip =
-    c.req.header('CF-Connecting-IP') ??
-    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
-    'unknown'
+  const ip = clientIp(c)
   const existing = await db
     .select({ count: ip_vote_counts.count })
     .from(ip_vote_counts)
@@ -213,21 +278,175 @@ app.post('/polls/:slug/votes', async (c) => {
   return c.json(await findPollWithDetailsBySlug(db, slug))
 })
 
-// ── Admin endpoints ─────────────────────────────────────────────────────────
+// ── Auth ────────────────────────────────────────────────────────────────────
 
-app.post('/admin/login', async (c) => {
-  const body = await c.req.json()
-  const parsed = adminLoginInputSchema.safeParse(body)
+async function startSession(
+  c: Context<AppEnv>,
+  session: Session,
+): Promise<SessionUser> {
+  setSessionCookie(c, await signSessionToken(c.env.JWT_SECRET, session))
+  return sessionUser(session)
+}
+
+app.post('/auth/login', async (c) => {
+  const parsed = loginInputSchema.safeParse(await c.req.json())
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
-  const ok = await verifyPassword(parsed.data.password, c.env.ADMIN_PASSWORD)
-  if (!ok) {
-    return c.json(makeError('UNAUTHORIZED', 'Falsches Passwort'), 401)
+  const db = createDb(c.env.DB)
+  await enforceRateLimit(db, clientIp(c), 'login', 20, 15)
+  const { username, password } = parsed.data
+  const user = await findUserByUsername(db, username)
+  if (user?.password_hash && user.activated_at) {
+    if (await verifyPassword(password, user.password_hash)) {
+      return c.json(
+        await startSession(c, {
+          userId: user.id,
+          role: user.role,
+          name: `${user.first_name} ${user.last_name}`,
+        }),
+      )
+    }
+  } else if (!user && username === 'admin' && c.env.ADMIN_PASSWORD) {
+    // Bootstrap: until someone claims the "admin" username, the env
+    // password signs in as a root admin so the first real accounts
+    // can be invited. Compared via hashes to stay constant-time.
+    const matches =
+      (await hashToken(password)) === (await hashToken(c.env.ADMIN_PASSWORD))
+    if (matches) {
+      return c.json(
+        await startSession(c, {
+          userId: null,
+          role: 'admin',
+          name: 'Administrator',
+        }),
+      )
+    }
   }
-  const token = await signAdminToken(c.env.JWT_SECRET)
-  setAdminCookie(c, token)
+  return c.json(
+    makeError('UNAUTHORIZED', 'Benutzername oder Passwort falsch'),
+    401,
+  )
+})
+
+/**
+ * Requests a magic sign-in link. The response is identical whether
+ * or not the address belongs to an account, so the endpoint can't
+ * be used to enumerate members. A link is only sent when exactly
+ * one activated account matches the address.
+ */
+app.post('/auth/magic-link', async (c) => {
+  const parsed = magicLinkRequestInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await enforceRateLimit(db, clientIp(c), 'magic-link', 5, 15)
+  const matches = await findActivatedUsersByEmail(db, parsed.data.email)
+  const target = matches.length === 1 ? matches[0] : undefined
+  if (target?.email) {
+    const { plaintext } = await createAuthToken(db, target.id, 'magic_link')
+    const url = `${new URL(c.req.url).origin}/api/auth/magic/${plaintext}`
+    try {
+      await sendMagicLinkEmail(c.env, target.email, url)
+    } catch (err) {
+      // Swallow provider errors: a 500 here would reveal that the
+      // address exists.
+      console.error('[auth] magic-link mail failed', err)
+    }
+  }
   return c.json({ ok: true })
+})
+
+/**
+ * The link from the magic e-mail. Signs the user in and redirects
+ * into the app — invalid or expired links land on the login page
+ * with an error flag instead of a JSON error.
+ */
+app.get('/auth/magic/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!isValidTokenShape(token)) {
+    return c.redirect('/login?magic=invalid')
+  }
+  const db = createDb(c.env.DB)
+  try {
+    const { token: row, user } = await resolveAuthToken(db, token, 'magic_link')
+    await consumeAuthToken(db, row.id)
+    await startSession(c, {
+      userId: user.id,
+      role: user.role,
+      name: `${user.first_name} ${user.last_name}`,
+    })
+    return c.redirect(user.role === 'admin' ? '/admin/polls' : '/intern')
+  } catch {
+    return c.redirect('/login?magic=invalid')
+  }
+})
+
+app.post('/auth/logout', async (c) => {
+  clearSessionCookie(c)
+  return c.json({ ok: true })
+})
+
+app.get('/auth/me', async (c) => {
+  const session = await getSession(c)
+  if (!session) {
+    return c.json(makeError('UNAUTHORIZED', 'Nicht angemeldet'), 401)
+  }
+  return c.json(sessionUser(session))
+})
+
+/** Preview of a pending invite, for the greeting on the accept page. */
+app.get('/auth/invite/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!isValidTokenShape(token)) {
+    return c.json(makeError('NOT_FOUND', 'Link ungültig'), 404)
+  }
+  const db = createDb(c.env.DB)
+  const { user } = await resolveAuthToken(db, token, 'invite')
+  return c.json({ first_name: user.first_name, last_name: user.last_name })
+})
+
+/**
+ * Accepts an invite: the user picks username + password and is
+ * signed in right away. Re-inviting an already-activated user is
+ * the "lost password" flow — accepting resets the credentials.
+ */
+app.post('/auth/invite/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!isValidTokenShape(token)) {
+    return c.json(makeError('NOT_FOUND', 'Link ungültig'), 404)
+  }
+  const parsed = acceptInviteInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const { token: row, user } = await resolveAuthToken(db, token, 'invite')
+  await activateUser(
+    db,
+    user.id,
+    parsed.data.username,
+    await hashPassword(parsed.data.password),
+  )
+  await consumeAuthToken(db, row.id)
+  return c.json(
+    await startSession(c, {
+      userId: user.id,
+      role: user.role,
+      name: `${user.first_name} ${user.last_name}`,
+    }),
+    201,
+  )
 })
 
 // ── Public share endpoint (no auth) ────────────────────────────────────────
@@ -235,15 +454,10 @@ app.post('/admin/login', async (c) => {
 /**
  * Returns the public, read-only event payload for a valid share
  * token. Used by the `/termine/:slug/:token` page.
- *
- * The token shape is constrained by [`isValidShareTokenShape`]
- * before we hash it — the public route is the only entry point
- * into a hash lookup, and an attacker could otherwise probe with
- * crafted strings that hash to colliding shapes.
  */
 app.get('/share/:token', async (c) => {
   const token = c.req.param('token')
-  if (!isValidShareTokenShape(token)) {
+  if (!isValidTokenShape(token)) {
     return c.json(makeError('NOT_FOUND', 'Share-Link nicht gefunden.'), 404)
   }
   const db = createDb(c.env.DB)
@@ -260,6 +474,398 @@ app.get('/share/:token', async (c) => {
   })
 })
 
+// ── Documents & folders (all signed-in members) ────────────────────────────
+
+function canManageDocumentTarget(
+  session: Session,
+  ownerUserId: number | null,
+): boolean {
+  if (session.role === 'admin') return true
+  return session.userId !== null && ownerUserId === session.userId
+}
+
+function shapeDocumentShareToken(row: DocumentShareTokenRow) {
+  return {
+    id: row.id,
+    document_id: row.document_id,
+    folder_id: row.folder_id,
+    token_fingerprint: row.token_hash.slice(0, 8),
+    label: row.label,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    revoked_at: row.revoked_at,
+    last_hit_at: row.last_hit_at,
+    is_active: isDocumentShareTokenActive(row),
+  }
+}
+
+// Flat list of every folder, for the "move to…" picker — the app
+// builds paths client-side rather than driving a second in-dialog
+// navigation UI.
+app.get('/folders', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listAllFolders(db))
+})
+
+app.get('/documents', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  const folderIdRaw = c.req.query('folder_id')
+  let folderId: number | null = null
+  if (folderIdRaw !== undefined) {
+    const parsed = Number(folderIdRaw)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige Ordner-ID'), 400)
+    }
+    folderId = parsed
+  }
+  return c.json(await browseFolder(db, folderId))
+})
+
+app.post('/folders', requireAuth, async (c) => {
+  const parsed = createFolderInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const row = await createFolder(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  return c.json(row, 201)
+})
+
+app.patch('/folders/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateFolderInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findFolderOrThrow(db, id)
+  if (!canManageDocumentTarget(session, existing.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  return c.json(await updateFolder(db, id, parsed.data))
+})
+
+// Deletes the folder and everything nested under it.
+app.delete('/folders/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findFolderOrThrow(db, id)
+  if (!canManageDocumentTarget(session, existing.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteFolder(db, c.env.ATTACHMENTS, id)
+  return c.json({ ok: true })
+})
+
+app.post('/documents', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File)) {
+    return c.json(
+      makeError('VALIDATION_ERROR', 'Datei fehlt (Feld „file“).'),
+      400,
+    )
+  }
+  if (!isAllowedDocumentContentType(file.type)) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Dateityp nicht erlaubt. Erlaubt: PDF, Bilder, Office- und Textdateien.',
+      ),
+      400,
+    )
+  }
+  if (file.size <= 0 || file.size > MAX_DOCUMENT_SIZE_BYTES) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        `Datei zu groß (max ${Math.round(MAX_DOCUMENT_SIZE_BYTES / 1024 / 1024)} MB).`,
+      ),
+      400,
+    )
+  }
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const description =
+    typeof body.description === 'string' ? body.description.trim() : ''
+  let folderId: number | null = null
+  if (typeof body.folder_id === 'string' && body.folder_id.length > 0) {
+    const parsed = Number(body.folder_id)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige Ordner-ID'), 400)
+    }
+    folderId = parsed
+  }
+  const safeName = safeFilename(file.name)
+  const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName}`
+  await c.env.ATTACHMENTS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  })
+  const session = c.get('session')
+  const row = await addDocument(db, {
+    title: title.length > 0 ? title.slice(0, 200) : safeName,
+    filename: safeName,
+    content_type: file.type,
+    size: file.size,
+    r2_key: key,
+    description: description.length > 0 ? description.slice(0, 2000) : null,
+    folder_id: folderId,
+    uploaded_by_user_id: session.userId,
+    uploaded_by_name: session.name,
+  })
+  return c.json(row, 201)
+})
+
+app.get('/documents/:id/download', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const row = await findDocumentOrThrow(db, id)
+  const object = await c.env.ATTACHMENTS.get(row.r2_key)
+  if (!object) {
+    return c.json(
+      makeError('NOT_FOUND', 'Datei nicht im Speicher gefunden.'),
+      404,
+    )
+  }
+  return new Response(object.body, {
+    headers: buildDownloadHeaders(row),
+  })
+})
+
+app.patch('/documents/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateDocumentInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findDocumentOrThrow(db, id)
+  if (!canManageDocumentTarget(session, existing.uploaded_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  return c.json(await updateDocument(db, id, parsed.data))
+})
+
+// Members may remove their own uploads; admins may remove any.
+app.delete('/documents/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const row = await findDocumentOrThrow(db, id)
+  if (!canManageDocumentTarget(session, row.uploaded_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteDocument(db, c.env.ATTACHMENTS, id)
+  return c.json({ ok: true })
+})
+
+// ── Document & folder share links ───────────────────────────────────────────
+
+app.get('/documents/:id/share-tokens', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  await findDocumentOrThrow(db, id)
+  const rows = await listDocumentShareTokens(db, id)
+  return c.json(rows.map(shapeDocumentShareToken))
+})
+
+app.post('/documents/:id/share-tokens', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = createDocumentShareTokenInputSchema.safeParse(
+    await c.req.json(),
+  )
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const { row, plaintext } = await createDocumentShareToken(
+    db,
+    { document_id: id, folder_id: null },
+    parsed.data,
+  )
+  return c.json({ token: shapeDocumentShareToken(row), plaintext }, 201)
+})
+
+app.post(
+  '/documents/:id/share-tokens/:tokenId/revoke',
+  requireAuth,
+  async (c) => {
+    const id = Number(c.req.param('id'))
+    const tokenId = Number(c.req.param('tokenId'))
+    if (
+      !Number.isInteger(id) ||
+      id <= 0 ||
+      !Number.isInteger(tokenId) ||
+      tokenId <= 0
+    ) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+    }
+    const db = createDb(c.env.DB)
+    const row = await revokeDocumentShareToken(
+      db,
+      { document_id: id, folder_id: null },
+      tokenId,
+    )
+    return c.json(shapeDocumentShareToken(row))
+  },
+)
+
+app.get('/folders/:id/share-tokens', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  await findFolderOrThrow(db, id)
+  const rows = await listFolderShareTokens(db, id)
+  return c.json(rows.map(shapeDocumentShareToken))
+})
+
+app.post('/folders/:id/share-tokens', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = createDocumentShareTokenInputSchema.safeParse(
+    await c.req.json(),
+  )
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const { row, plaintext } = await createDocumentShareToken(
+    db,
+    { document_id: null, folder_id: id },
+    parsed.data,
+  )
+  return c.json({ token: shapeDocumentShareToken(row), plaintext }, 201)
+})
+
+app.post(
+  '/folders/:id/share-tokens/:tokenId/revoke',
+  requireAuth,
+  async (c) => {
+    const id = Number(c.req.param('id'))
+    const tokenId = Number(c.req.param('tokenId'))
+    if (
+      !Number.isInteger(id) ||
+      id <= 0 ||
+      !Number.isInteger(tokenId) ||
+      tokenId <= 0
+    ) {
+      return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+    }
+    const db = createDb(c.env.DB)
+    const row = await revokeDocumentShareToken(
+      db,
+      { document_id: null, folder_id: id },
+      tokenId,
+    )
+    return c.json(shapeDocumentShareToken(row))
+  },
+)
+
+// ── Public document/folder share endpoint (no auth) ─────────────────────────
+
+app.get('/share/documents/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!isValidTokenShape(token)) {
+    return c.json(makeError('NOT_FOUND', 'Share-Link nicht gefunden.'), 404)
+  }
+  const db = createDb(c.env.DB)
+  const resolved = await resolveDocumentShareToken(db, token)
+  if (resolved.type === 'document') {
+    return c.json({ type: 'document', document: resolved.document })
+  }
+  return c.json({
+    type: 'folder',
+    folder_name: resolved.folder_name,
+    documents: resolved.documents,
+  })
+})
+
+app.get('/share/documents/:token/download/:documentId', async (c) => {
+  const token = c.req.param('token')
+  const documentId = Number(c.req.param('documentId'))
+  if (!isValidTokenShape(token) || !Number.isInteger(documentId)) {
+    return c.json(makeError('NOT_FOUND', 'Datei nicht gefunden.'), 404)
+  }
+  const db = createDb(c.env.DB)
+  const resolved = await resolveDocumentShareToken(db, token)
+  const isAllowed =
+    resolved.type === 'document'
+      ? resolved.document.id === documentId
+      : resolved.documents.some((d) => d.id === documentId)
+  if (!isAllowed) {
+    return c.json(makeError('NOT_FOUND', 'Datei nicht gefunden.'), 404)
+  }
+  const row = await findDocumentOrThrow(db, documentId)
+  const object = await c.env.ATTACHMENTS.get(row.r2_key)
+  if (!object) {
+    return c.json(
+      makeError('NOT_FOUND', 'Datei nicht im Speicher gefunden.'),
+      404,
+    )
+  }
+  return new Response(object.body, { headers: buildDownloadHeaders(row) })
+})
+
+// ── Events (all signed-in members — read-only) ─────────────────────────────
+
+app.get('/events', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listAllEvents(db))
+})
+
+app.get('/events/:slug', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, c.req.param('slug'))
+  return c.json(await findEventWithDetails(db, event.id))
+})
+
 app.use('/admin/*', requireAdmin)
 
 app.get('/admin/polls', async (c) => {
@@ -272,7 +878,10 @@ app.post('/admin/polls', async (c) => {
   const body = await c.req.json()
   const parsed = createPollInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const poll = await createPollWithOptions(db, parsed.data)
@@ -287,7 +896,10 @@ app.patch('/admin/polls/:id', async (c) => {
   const body = await c.req.json()
   const parsed = finalizePollInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const poll = await finalizePoll(db, id, parsed.data)
@@ -302,7 +914,10 @@ app.post('/admin/polls/:id/options', async (c) => {
   const body = await c.req.json()
   const parsed = addPollOptionsInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const poll = await addPollOptions(db, id, parsed.data)
@@ -328,7 +943,10 @@ app.post('/admin/users', async (c) => {
   const body = await c.req.json()
   const parsed = createUserInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const user = await createUser(db, parsed.data)
@@ -347,7 +965,10 @@ app.patch('/admin/users/:slug', async (c) => {
   const body = await c.req.json()
   const parsed = updateUserInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   // Resolve slug → id once so the update query hits the same row.
@@ -360,8 +981,34 @@ app.delete('/admin/users/:slug', async (c) => {
   const slug = c.req.param('slug')
   const db = createDb(c.env.DB)
   const existing = await findUserBySlugOrThrow(db, slug)
+  if (existing.id === c.get('session').userId) {
+    return c.json(
+      makeError('CONFLICT', 'Du kannst dich nicht selbst löschen.'),
+      409,
+    )
+  }
   await deleteUser(db, existing.id)
   return c.json({ ok: true })
+})
+
+/**
+ * Creates a fresh invite link for the user and returns it exactly
+ * once — the admin passes it on via whatever channel works
+ * (WhatsApp, e-mail, paper). Re-inviting replaces any pending link
+ * and doubles as the password-reset flow.
+ */
+app.post('/admin/users/:slug/invite', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const user = await findUserBySlugOrThrow(db, slug)
+  const { plaintext, expires_at } = await createAuthToken(db, user.id, 'invite')
+  return c.json(
+    {
+      url: `${new URL(c.req.url).origin}/einladung/${plaintext}`,
+      expires_at,
+    },
+    201,
+  )
 })
 
 // ── Events ────────────────────────────────────────────────────────────────
@@ -385,7 +1032,10 @@ app.post('/admin/events', async (c) => {
   const body = await c.req.json()
   const parsed = createEventInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await createEvent(db, parsed.data)
@@ -404,7 +1054,10 @@ app.patch('/admin/events/:slug', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -425,23 +1078,14 @@ app.put('/admin/events/:slug/planned-attendees', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventAttendeesInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
   return c.json(await replacePlannedAttendees(db, event.id, parsed.data))
-})
-
-app.put('/admin/events/:slug/actual-attendees', async (c) => {
-  const slug = c.req.param('slug')
-  const body = await c.req.json()
-  const parsed = updateEventAttendeesInputSchema.safeParse(body)
-  if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
-  }
-  const db = createDb(c.env.DB)
-  const event = await findEventBySlugOrThrow(db, slug)
-  return c.json(await replaceActualAttendees(db, event.id, parsed.data))
 })
 
 app.post('/admin/events/:slug/planned-attendees/single', async (c) => {
@@ -449,7 +1093,10 @@ app.post('/admin/events/:slug/planned-attendees/single', async (c) => {
   const body = await c.req.json()
   const parsed = createEventAttendeeInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -461,7 +1108,10 @@ app.post('/admin/events/:slug/actual-attendees/single', async (c) => {
   const body = await c.req.json()
   const parsed = createEventAttendeeInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -499,7 +1149,10 @@ app.post('/admin/events/:slug/agenda-items', async (c) => {
   const body = await c.req.json()
   const parsed = createEventAgendaItemInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -516,7 +1169,10 @@ app.patch('/admin/events/:slug/agenda-items/:id', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventAgendaItemInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -541,7 +1197,10 @@ app.put('/admin/events/:slug/agenda-items/order', async (c) => {
   const body = await c.req.json()
   const parsed = reorderEventAgendaItemsInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -557,7 +1216,10 @@ app.post('/admin/events/:slug/agenda-items/:id/votes', async (c) => {
   const body = await c.req.json()
   const parsed = createEventAgendaVoteInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -573,13 +1235,14 @@ app.patch('/admin/events/:slug/agenda-votes/:voteId', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventAgendaVoteInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
-  // Slug is part of the URL for consistency; we don't need to load the
-  // event here, the vote query is enough.
-  void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
   const db = createDb(c.env.DB)
-  return c.json(await updateAgendaVote(db, voteId, parsed.data))
+  const event = await findEventBySlugOrThrow(db, slug)
+  return c.json(await updateAgendaVote(db, event.id, voteId, parsed.data))
 })
 
 app.delete('/admin/events/:slug/agenda-votes/:voteId', async (c) => {
@@ -588,9 +1251,9 @@ app.delete('/admin/events/:slug/agenda-votes/:voteId', async (c) => {
   if (!Number.isInteger(voteId) || voteId <= 0) {
     return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
   }
-  void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
   const db = createDb(c.env.DB)
-  await deleteAgendaVote(db, voteId)
+  const event = await findEventBySlugOrThrow(db, slug)
+  await deleteAgendaVote(db, event.id, voteId)
   return c.json({ ok: true })
 })
 
@@ -611,31 +1274,56 @@ app.put(
     const body = await c.req.json()
     const parsed = updateAttendeeVoteInputSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+      return c.json(
+        makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+        400,
+      )
     }
-    void (await findEventBySlugOrThrow(createDb(c.env.DB), slug))
     const db = createDb(c.env.DB)
-    return c.json(await setAttendeeVote(db, voteId, attendeeId, parsed.data))
+    const event = await findEventBySlugOrThrow(db, slug)
+    return c.json(
+      await setAttendeeVote(db, event.id, voteId, attendeeId, parsed.data),
+    )
   },
 )
 
 // ── Attachments ───────────────────────────────────────────────────────────
 
 /**
- * Sanitises a user-supplied filename for use in the `Content-Disposition`
- * header. We strip control chars, keep the extension, and fall back to
- * a safe default if everything else is removed.
+ * Sanitises a user-supplied filename for the `Content-Disposition`
+ * header: anything outside [a-zA-Z0-9._-] becomes `_`.
  */
 function safeFilename(input: string): string {
-  // We whitelist rather than blacklist: any char that's not a letter,
-  // digit, dot, underscore or hyphen gets squashed to `_`. This is
-  // bulletproof against control chars, quotes, backslashes and
-  // directory-traversal sequences in one go.
   const cleaned = input
     .replace(/[^a-zA-Z0-9._-]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 200)
   return cleaned.length > 0 ? cleaned : 'anhang'
+}
+
+/**
+ * Download headers for R2-backed files. Only raster images render
+ * inline — SVG (scriptable) and everything else force a download,
+ * and `nosniff` keeps browsers from second-guessing the type.
+ */
+function buildDownloadHeaders(row: {
+  filename: string
+  content_type: string
+  size: number
+}): Headers {
+  const isInline =
+    row.content_type.startsWith('image/') &&
+    row.content_type !== 'image/svg+xml'
+  const headers = new Headers()
+  headers.set('Content-Type', row.content_type)
+  headers.set('Content-Length', String(row.size))
+  headers.set(
+    'Content-Disposition',
+    `${isInline ? 'inline' : 'attachment'}; filename="${safeFilename(row.filename)}"`,
+  )
+  headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set('Cache-Control', 'private, max-age=300')
+  return headers
 }
 
 app.post('/admin/events/:slug/attachments', async (c) => {
@@ -709,7 +1397,8 @@ app.get('/admin/events/:slug/attachments/:id/download', async (c) => {
     return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
   }
   const db = createDb(c.env.DB)
-  const row = await findAttachmentOrThrow(db, id)
+  const event = await findEventBySlugOrThrow(db, c.req.param('slug'))
+  const row = await findAttachmentOrThrow(db, event.id, id)
   const object = await c.env.ATTACHMENTS.get(row.r2_key)
   if (!object) {
     return c.json(
@@ -717,14 +1406,7 @@ app.get('/admin/events/:slug/attachments/:id/download', async (c) => {
       404,
     )
   }
-  const isInline = row.content_type.startsWith('image/')
-  const disposition = `${isInline ? 'inline' : 'attachment'}; filename="${safeFilename(row.filename)}"`
-  const headers = new Headers()
-  headers.set('Content-Type', row.content_type)
-  headers.set('Content-Length', String(row.size))
-  headers.set('Content-Disposition', disposition)
-  headers.set('Cache-Control', 'private, max-age=300')
-  return new Response(object.body, { headers })
+  return new Response(object.body, { headers: buildDownloadHeaders(row) })
 })
 
 app.patch('/admin/events/:slug/attachments/:id', async (c) => {
@@ -735,11 +1417,14 @@ app.patch('/admin/events/:slug/attachments/:id', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventAttachmentInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
-  void (await findEventBySlugOrThrow(createDb(c.env.DB), c.req.param('slug')))
   const db = createDb(c.env.DB)
-  const row = await updateAttachment(db, id, parsed.data)
+  const event = await findEventBySlugOrThrow(db, c.req.param('slug'))
+  const row = await updateAttachment(db, event.id, id, parsed.data)
   return c.json(row)
 })
 
@@ -748,9 +1433,9 @@ app.delete('/admin/events/:slug/attachments/:id', async (c) => {
   if (!Number.isInteger(id) || id <= 0) {
     return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
   }
-  void (await findEventBySlugOrThrow(createDb(c.env.DB), c.req.param('slug')))
   const db = createDb(c.env.DB)
-  await deleteAttachment(db, c.env.ATTACHMENTS, id)
+  const event = await findEventBySlugOrThrow(db, c.req.param('slug'))
+  await deleteAttachment(db, c.env.ATTACHMENTS, event.id, id)
   return c.json({ ok: true })
 })
 
@@ -761,7 +1446,10 @@ app.post('/admin/events/:slug/decisions', async (c) => {
   const body = await c.req.json()
   const parsed = createEventDecisionInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -778,7 +1466,10 @@ app.patch('/admin/events/:slug/decisions/:id', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventDecisionInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -846,7 +1537,10 @@ app.post('/admin/events/:slug/tasks', async (c) => {
   const body = await c.req.json()
   const parsed = createEventTaskInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -863,7 +1557,10 @@ app.patch('/admin/events/:slug/tasks/:id', async (c) => {
   const body = await c.req.json()
   const parsed = updateEventTaskInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -893,7 +1590,10 @@ app.post('/admin/events/:slug/tasks/carry-over', async (c) => {
   const body = await c.req.json()
   const parsed = carryOverTaskInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -938,7 +1638,10 @@ app.post('/admin/events/:slug/share-tokens', async (c) => {
   const body = await c.req.json()
   const parsed = createEventShareTokenInputSchema.safeParse(body)
   if (!parsed.success) {
-    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
   }
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
@@ -966,9 +1669,8 @@ app.post('/admin/events/:slug/share-tokens', async (c) => {
 })
 
 /**
- * Revoke a share token. The token still exists in the table but
- * the public endpoint will return 410 Gone. Idempotent: revoking
- * an already-revoked token returns 400.
+ * Revoke a share token. The row is kept so the admin list still
+ * shows it; the public endpoint answers 410 Gone from then on.
  */
 app.post('/admin/events/:slug/share-tokens/:id/revoke', async (c) => {
   const id = Number(c.req.param('id'))
@@ -976,7 +1678,8 @@ app.post('/admin/events/:slug/share-tokens/:id/revoke', async (c) => {
     return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
   }
   const db = createDb(c.env.DB)
-  const row = await revokeShareToken(db, id)
+  const event = await findEventBySlugOrThrow(db, c.req.param('slug'))
+  const row = await revokeShareToken(db, event.id, id)
   return c.json({
     id: row.id,
     event_id: row.event_id,

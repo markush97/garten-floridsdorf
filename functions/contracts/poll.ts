@@ -67,10 +67,6 @@ export const submitVotesInputSchema = z.object({
     .min(1),
 })
 
-export const adminLoginInputSchema = z.object({
-  password: z.string().min(1),
-})
-
 export const finalizePollInputSchema = z.object({
   final_option_id: z.number().nullable().optional(),
   closed: z.boolean().optional(),

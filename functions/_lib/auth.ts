@@ -1,80 +1,106 @@
 import type { Context, MiddlewareHandler } from 'hono'
-import { getCookie, setCookie } from 'hono/cookie'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { jwtVerify, SignJWT } from 'jose'
 import { makeError } from './errors'
 
-const COOKIE_NAME = 'admin_token'
+const COOKIE_NAME = 'session'
 const JWT_ALG = 'HS256'
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+
+/**
+ * The signed-in identity carried in the session JWT. `userId` is
+ * null only for the bootstrap root login (env `ADMIN_PASSWORD`),
+ * which exists so the first real admin account can be invited.
+ */
+export type Session = {
+  userId: number | null
+  role: 'member' | 'admin'
+  name: string
+}
+
+export type AuthVariables = {
+  session: Session
+}
 
 function getSecretBytes(jwtSecret: string): Uint8Array {
   return new TextEncoder().encode(jwtSecret)
 }
 
-async function timingSafeCompare(a: string, b: string): Promise<boolean> {
-  const enc = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw',
-    enc.encode('timing-safe-compare'),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  )
-  const [aHash, bHash] = await Promise.all([
-    crypto.subtle.sign('HMAC', key, enc.encode(a)),
-    crypto.subtle.sign('HMAC', key, enc.encode(b)),
-  ])
-  const aArr = new Uint8Array(aHash)
-  const bArr = new Uint8Array(bHash)
-  let diff = 0
-  for (let i = 0; i < aArr.length; i++) {
-    diff |= (aArr[i] ?? 0) ^ (bArr[i] ?? 0)
-  }
-  return diff === 0
-}
-
-export async function verifyPassword(
-  input: string,
-  stored: string,
-): Promise<boolean> {
-  return timingSafeCompare(input, stored)
-}
-
-export async function signAdminToken(jwtSecret: string): Promise<string> {
-  return new SignJWT({ sub: 'admin' })
+export async function signSessionToken(
+  jwtSecret: string,
+  session: Session,
+): Promise<string> {
+  return new SignJWT({ role: session.role, name: session.name })
     .setProtectedHeader({ alg: JWT_ALG })
+    .setSubject(session.userId === null ? 'root' : String(session.userId))
     .setIssuedAt()
-    .setExpirationTime('7d')
+    .setExpirationTime(`${SESSION_MAX_AGE_SECONDS}s`)
     .sign(getSecretBytes(jwtSecret))
 }
 
-export function setAdminCookie(c: Context, token: string): void {
-  const isSecure = new URL(c.req.url).protocol === 'https:'
+export function setSessionCookie(c: Context, token: string): void {
   setCookie(c, COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isSecure,
+    secure: new URL(c.req.url).protocol === 'https:',
     sameSite: 'Strict',
-    maxAge: COOKIE_MAX_AGE,
+    maxAge: SESSION_MAX_AGE_SECONDS,
     path: '/',
   })
 }
 
-export const requireAdmin: MiddlewareHandler = async (c, next) => {
+export function clearSessionCookie(c: Context): void {
+  deleteCookie(c, COOKIE_NAME, { path: '/' })
+}
+
+async function readSession(c: Context): Promise<Session | null> {
   const token = getCookie(c, COOKIE_NAME)
-  if (!token) {
+  if (!token) return null
+  const env = c.env as { JWT_SECRET?: string }
+  if (!env.JWT_SECRET) return null
+  try {
+    const { payload } = await jwtVerify(token, getSecretBytes(env.JWT_SECRET))
+    const role = payload.role === 'admin' ? 'admin' : 'member'
+    const userId =
+      payload.sub === 'root' ? null : Number.parseInt(payload.sub ?? '', 10)
+    if (userId !== null && !Number.isInteger(userId)) return null
+    return {
+      userId,
+      role,
+      name: typeof payload.name === 'string' ? payload.name : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Requires any signed-in user (member or admin). */
+export const requireAuth: MiddlewareHandler<{
+  Variables: AuthVariables
+}> = async (c, next) => {
+  const session = await readSession(c)
+  if (!session) {
     return c.json(makeError('UNAUTHORIZED', 'Nicht angemeldet'), 401)
   }
-  const env = c.env as { JWT_SECRET?: string }
-  if (!env.JWT_SECRET) {
-    return c.json(
-      makeError('INTERNAL_ERROR', 'Serverkonfigurationsfehler'),
-      500,
-    )
-  }
-  try {
-    await jwtVerify(token, getSecretBytes(env.JWT_SECRET))
-  } catch {
-    return c.json(makeError('UNAUTHORIZED', 'Ungültige Sitzung'), 401)
-  }
+  c.set('session', session)
   await next()
+}
+
+/** Requires a signed-in user with the admin role. */
+export const requireAdmin: MiddlewareHandler<{
+  Variables: AuthVariables
+}> = async (c, next) => {
+  const session = await readSession(c)
+  if (!session) {
+    return c.json(makeError('UNAUTHORIZED', 'Nicht angemeldet'), 401)
+  }
+  if (session.role !== 'admin') {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  c.set('session', session)
+  await next()
+}
+
+/** Reads the session without enforcing it (for `/auth/me`). */
+export async function getSession(c: Context): Promise<Session | null> {
+  return readSession(c)
 }

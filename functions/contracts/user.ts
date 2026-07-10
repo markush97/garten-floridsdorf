@@ -27,6 +27,8 @@ const optionalDescription = z
   )
   .nullish()
 
+// Never includes `password_hash` — the queries select these columns
+// explicitly so the hash can't leak into an API response.
 export const userSchema = z.object({
   id: z.number(),
   slug: z.string(),
@@ -35,6 +37,9 @@ export const userSchema = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   description: z.string().nullable(),
+  username: z.string().nullable(),
+  role: z.enum(['member', 'admin']),
+  activated_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 })
@@ -45,6 +50,7 @@ export const createUserInputSchema = z.object({
   email: optionalContactString,
   phone: optionalContactString,
   description: optionalDescription,
+  role: z.enum(['member', 'admin']).optional(),
 })
 
 export const updateUserInputSchema = createUserInputSchema.partial()

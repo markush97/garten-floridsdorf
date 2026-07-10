@@ -1,10 +1,11 @@
+import { Link } from '@tanstack/react-router'
 import { cn } from '~/lib/ui-utils'
 
 const navigationItems = [
   { href: '#ueber-uns', label: 'Über uns' },
   { href: '#was-wir-tun', label: 'Was wir tun' },
   { href: '#naechster-termin', label: 'Nächster Termin' },
-  { href: '#aktuelle-umfrage', label: 'Aktuelle Umfrage' },
+  { href: '#aktuelle-umfrage', label: 'Aktuelle Terminabstimmung' },
 ] as const
 
 function Navbar() {
@@ -50,6 +51,13 @@ function Navbar() {
             </a>
           ))}
         </nav>
+
+        <Link
+          className="inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-full px-3 text-sm font-semibold text-forest-700 transition hover:bg-cream-50/80 hover:text-forest-900 sm:self-auto sm:px-4 lg:ml-2"
+          to="/login"
+        >
+          Mitglieder-Login
+        </Link>
       </div>
     </header>
   )

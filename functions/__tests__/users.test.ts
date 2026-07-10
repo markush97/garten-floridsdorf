@@ -26,6 +26,9 @@ describe('userSchema', () => {
       email: null,
       phone: null,
       description: null,
+      username: null,
+      role: 'member',
+      activated_at: null,
       created_at: '2026-06-10T10:00:00.000Z',
       updated_at: '2026-06-10T10:00:00.000Z',
     })
@@ -238,7 +241,7 @@ describe('createUser', () => {
 })
 
 describe('updateUser', () => {
-  it('regenerates the slug when the name changes', async () => {
+  it('keeps the slug stable when the name changes', async () => {
     const renamed = { ...baseUser, first_name: 'Mira' }
     const m = makeDbMock()
     // 1st lookup (current row), 2nd lookup (post-update read-back).
@@ -249,8 +252,7 @@ describe('updateUser', () => {
     expect(result.first_name).toBe('Mira')
     const setPayload = m.set.mock.calls[0]?.[0]
     expect(setPayload.first_name).toBe('Mira')
-    expect(typeof setPayload.slug).toBe('string')
-    expect(setPayload.slug).toMatch(/^mira-hinkel-/)
+    expect(setPayload.slug).toBeUndefined()
   })
 
   it('leaves the slug alone when the name does not change', async () => {

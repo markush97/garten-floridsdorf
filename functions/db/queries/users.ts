@@ -6,6 +6,23 @@ import { generateSlug } from '../../_lib/slug'
 import type { CreateUserInput, UpdateUserInput } from '../../contracts/user'
 import { users } from '../schema'
 
+// Everything except `password_hash` — this is what API responses may
+// contain. Keep in sync with `userSchema` in contracts/user.ts.
+export const publicUserColumns = {
+  id: users.id,
+  slug: users.slug,
+  first_name: users.first_name,
+  last_name: users.last_name,
+  email: users.email,
+  phone: users.phone,
+  description: users.description,
+  username: users.username,
+  role: users.role,
+  activated_at: users.activated_at,
+  created_at: users.created_at,
+  updated_at: users.updated_at,
+}
+
 function normalizeOptional(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null
   const trimmed = value.trim()
@@ -14,14 +31,18 @@ function normalizeOptional(value: string | null | undefined): string | null {
 
 export async function listAllUsers(db: Database) {
   return db
-    .select()
+    .select(publicUserColumns)
     .from(users)
     .orderBy(asc(users.last_name), asc(users.first_name))
     .all()
 }
 
 export async function findUserBySlugOrThrow(db: Database, slug: string) {
-  const user = await db.select().from(users).where(eq(users.slug, slug)).get()
+  const user = await db
+    .select(publicUserColumns)
+    .from(users)
+    .where(eq(users.slug, slug))
+    .get()
   if (!user) {
     throw new AppError('NOT_FOUND', 'Benutzer nicht gefunden', 404)
   }
@@ -29,7 +50,11 @@ export async function findUserBySlugOrThrow(db: Database, slug: string) {
 }
 
 export async function findUserByIdOrThrow(db: Database, id: number) {
-  const user = await db.select().from(users).where(eq(users.id, id)).get()
+  const user = await db
+    .select(publicUserColumns)
+    .from(users)
+    .where(eq(users.id, id))
+    .get()
   if (!user) {
     throw new AppError('NOT_FOUND', 'Benutzer nicht gefunden', 404)
   }
@@ -40,8 +65,6 @@ export async function createUser(db: Database, input: CreateUserInput) {
   const now = nowUtc()
   const firstName = input.first_name.trim()
   const lastName = input.last_name.trim()
-  // D1 refuses Drizzle's `("id", ...) VALUES (null, ...)` for AUTOINCREMENT
-  // tables with FK constraints — use raw SQL to omit the id column.
   const slug = generateSlug(`${firstName} ${lastName}`)
   const inserted = await db
     .insert(users)
@@ -52,10 +75,11 @@ export async function createUser(db: Database, input: CreateUserInput) {
       email: normalizeOptional(input.email),
       phone: normalizeOptional(input.phone),
       description: normalizeOptional(input.description),
+      role: input.role ?? 'member',
       created_at: now,
       updated_at: now,
     })
-    .returning()
+    .returning(publicUserColumns)
   const newUser = inserted[0]
   if (!newUser) {
     throw new AppError(
@@ -72,7 +96,7 @@ export async function updateUser(
   id: number,
   input: UpdateUserInput,
 ) {
-  const current = await findUserByIdOrThrow(db, id)
+  await findUserByIdOrThrow(db, id)
   const now = nowUtc()
   const updates: Partial<typeof users.$inferInsert> = { updated_at: now }
   if (input.first_name !== undefined) {
@@ -90,14 +114,12 @@ export async function updateUser(
   if (input.description !== undefined) {
     updates.description = normalizeOptional(input.description)
   }
-
-  // Regenerate the slug whenever the name changes so URLs stay readable.
-  if (updates.first_name || updates.last_name) {
-    const nextFirst = updates.first_name ?? current.first_name
-    const nextLast = updates.last_name ?? current.last_name
-    updates.slug = generateSlug(`${nextFirst} ${nextLast}`)
+  if (input.role !== undefined) {
+    updates.role = input.role
   }
 
+  // The slug intentionally stays stable on rename — regenerating it
+  // would 404 the page the admin is currently editing.
   await db.update(users).set(updates).where(eq(users.id, id))
   return findUserByIdOrThrow(db, id)
 }
