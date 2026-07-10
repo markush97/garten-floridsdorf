@@ -71,7 +71,7 @@ export default function AdminDashboard() {
           <p className="text-beet-700">
             Zugriff verweigert oder Fehler beim Laden.
           </p>
-          <Link className="text-sm underline text-forest-700" to="/admin">
+          <Link className="text-sm underline text-forest-700" to="/login">
             Zur Anmeldung
           </Link>
         </div>
@@ -83,17 +83,17 @@ export default function AdminDashboard() {
     <AdminShell>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl text-forest-900">Umfragen</h1>
+          <h1 className="text-2xl text-forest-900">Terminabstimmungen</h1>
           <Button asChild>
             <Link to="/admin/polls/$id" params={{ id: 'new' }}>
-              Neue Umfrage
+              Neue Terminabstimmung
             </Link>
           </Button>
         </div>
 
         {polls?.length === 0 && (
           <p className="py-8 text-center text-sm text-forest-700/60">
-            Noch keine Umfragen vorhanden.
+            Noch keine Terminabstimmungen vorhanden.
           </p>
         )}
 
@@ -137,7 +137,7 @@ export default function AdminDashboard() {
                           { id: poll.id, data: { closed: true } },
                           {
                             onSuccess: () =>
-                              toast.success('Umfrage geschlossen.'),
+                              toast.success('Terminabstimmung geschlossen.'),
                           },
                         )
                       }
@@ -161,7 +161,7 @@ export default function AdminDashboard() {
                     </Link>
                   </Button>
                   <Button
-                    aria-label={`Umfrage "${poll.title}" löschen`}
+                    aria-label={`Terminabstimmung "${poll.title}" löschen`}
                     className={cn(
                       'text-xs text-beet-700 hover:bg-beet-700/10 hover:text-beet-700',
                     )}
@@ -184,7 +184,7 @@ export default function AdminDashboard() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Umfrage löschen?</DialogTitle>
+            <DialogTitle>Terminabstimmung löschen?</DialogTitle>
             <DialogDescription>
               Diese Aktion kann nicht rückgängig gemacht werden. Alle Antworten
               werden ebenfalls gelöscht.
@@ -201,7 +201,7 @@ export default function AdminDashboard() {
                 if (!deleteId) return
                 deletePoll(deleteId, {
                   onSuccess: () => {
-                    toast.success('Umfrage gelöscht.')
+                    toast.success('Terminabstimmung gelöscht.')
                     setDeleteId(null)
                   },
                   onError: () => toast.error('Fehler beim Löschen.'),

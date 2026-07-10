@@ -1,5 +1,4 @@
 import {
-  ArrowRight01Icon,
   Edit01Icon,
   Mail01Icon,
   SmartPhone01Icon,
@@ -50,7 +49,7 @@ function AdminUsersList() {
           <p className="text-beet-700">
             Zugriff verweigert oder Fehler beim Laden.
           </p>
-          <Link className="text-sm underline text-forest-700" to="/admin">
+          <Link className="text-sm underline text-forest-700" to="/login">
             Zur Anmeldung
           </Link>
         </div>
@@ -97,13 +96,38 @@ function AdminUsersList() {
                       />
                     </span>
                     <div className="space-y-1">
-                      <Link
-                        className="font-medium text-forest-900 hover:text-forest-700 focus-visible:outline-2 focus-visible:outline-forest-700"
-                        to="/admin/users/$slug"
-                        params={{ slug: user.slug }}
-                      >
-                        {fullName(user)}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          className="font-medium text-forest-900 hover:text-forest-700 focus-visible:outline-2 focus-visible:outline-forest-700"
+                          params={{ slug: user.slug }}
+                          to="/admin/users/$slug"
+                        >
+                          {fullName(user)}
+                        </Link>
+                        {user.role === 'admin' && (
+                          <Badge
+                            className="bg-forest-900/8 text-forest-900 ring-1 ring-inset ring-forest-900/15"
+                            variant="outline"
+                          >
+                            Admin
+                          </Badge>
+                        )}
+                        {user.activated_at ? (
+                          <Badge
+                            className="bg-leaf-500/15 text-forest-700 ring-1 ring-inset ring-leaf-500/30"
+                            variant="outline"
+                          >
+                            Zugang aktiv
+                          </Badge>
+                        ) : (
+                          <Badge
+                            className="bg-wood-600/15 text-wood-600 ring-1 ring-inset ring-wood-600/30"
+                            variant="outline"
+                          >
+                            Kein Zugang
+                          </Badge>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-forest-700/70">
                         {user.email && (
                           <span className="inline-flex items-center gap-1.5">
@@ -187,36 +211,6 @@ function AdminUsersList() {
             ))}
           </ul>
         )}
-
-        <div className="rounded-[1.25rem] bg-white/60 p-5 ring-1 ring-inset ring-white/40 sm:p-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-leaf-500/15 text-leaf-500">
-              <HugeiconsIcon
-                aria-hidden="true"
-                icon={ArrowRight01Icon}
-                size={18}
-                strokeWidth={1.8}
-              />
-            </span>
-            <div className="space-y-1 text-sm text-forest-700/80">
-              <p className="font-semibold text-forest-900">
-                Nächster Schritt: Anwesenheitslisten
-              </p>
-              <p>
-                Sobald ein Termin feststeht, kannst du hier pro Benutzer
-                markieren, wer kommt, wer absagt und wer noch unsicher ist.
-              </p>
-            </div>
-          </div>
-          <div className="mt-3">
-            <Badge
-              className="bg-wood-600/15 text-wood-600 ring-1 ring-inset ring-wood-600/30"
-              variant="outline"
-            >
-              Bald verfügbar
-            </Badge>
-          </div>
-        </div>
       </div>
 
       <Dialog

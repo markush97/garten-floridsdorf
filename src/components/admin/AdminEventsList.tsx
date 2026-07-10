@@ -57,7 +57,7 @@ function AdminEventsList() {
           <p className="text-beet-700">
             Zugriff verweigert oder Fehler beim Laden.
           </p>
-          <Link className="text-sm underline text-forest-700" to="/admin">
+          <Link className="text-sm underline text-forest-700" to="/login">
             Zur Anmeldung
           </Link>
         </div>
@@ -254,8 +254,8 @@ function EmptyState() {
           </p>
           <p>
             Lege einen Termin manuell an oder öffne im Admin-Bereich eine
-            abgestimmte Umfrage, deren Termin bereits festgelegt wurde – dort
-            findest du den Button „Termin anlegen“.
+            abgeschlossene Terminabstimmung, deren Termin bereits festgelegt
+            wurde – dort findest du den Button „Termin anlegen“.
           </p>
         </div>
       </div>

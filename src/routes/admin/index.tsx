@@ -1,6 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
-import AdminLogin from '~/components/admin/AdminLogin'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/admin/')({
-  component: AdminLogin,
+  beforeLoad: () => {
+    // Sign-in lives at /login now; the admin landing is the poll list
+    // (which redirects unauthenticated visitors to /login itself).
+    throw redirect({ to: '/admin/polls' })
+  },
 })
