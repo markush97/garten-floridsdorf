@@ -44,7 +44,7 @@ function SharedDocumentPage() {
   }, [token])
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
+    <div className="flex min-h-screen flex-col bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
       <header className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-3 py-4 sm:px-6 lg:px-8">
         <Link
           aria-label="Zur Startseite"
@@ -72,14 +72,16 @@ function SharedDocumentPage() {
           Zur Startseite
         </Link>
       </header>
-      <main className="mx-auto w-full max-w-3xl px-3 pb-20 pt-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-3 pb-20 pt-6 sm:px-6 lg:px-8">
         {status === 'loading' && <LoadingPanel />}
         {status === 'gone' && <GonePanel />}
         {status === 'ok' && target && (
           <SharedTargetPanel target={target} token={token} />
         )}
       </main>
-      <Footer />
+      <div className="mx-auto w-full max-w-[1180px] px-3 pb-6 sm:px-6 sm:pb-8 lg:px-8">
+        <Footer />
+      </div>
     </div>
   )
 }

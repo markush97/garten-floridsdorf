@@ -16,7 +16,7 @@ export default function PollPage({ slug, token }: Props) {
   const status = (error as { status?: number } | null)?.status
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
+    <div className="flex min-h-screen flex-col bg-[linear-gradient(180deg,#f8f3e7_0%,#f2ecdc_100%)] text-forest-900">
       <header className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-3 py-4 sm:px-6 lg:px-8">
         <Link
           aria-label="Zur Startseite"
@@ -46,7 +46,7 @@ export default function PollPage({ slug, token }: Props) {
         </Link>
       </header>
 
-      <main className="mx-auto w-full max-w-[1180px] px-3 pb-20 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-[1180px] flex-1 px-3 pb-20 sm:px-6 lg:px-8">
         {isPending && (
           <div className="py-16 text-center text-forest-700/60">
             Wird geladen …
