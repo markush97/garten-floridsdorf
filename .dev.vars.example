@@ -1,5 +1,13 @@
 # Local-only secrets for `pnpm dev`. Picked up automatically by
 # @cloudflare/vite-plugin and wrangler. Copy this file to `.dev.vars`
 # and adjust the values. Do NOT commit `.dev.vars`.
+
+# Bootstrap admin login (username "admin") — only used until the first
+# real admin account is invited and activated. Remove once you have one.
 ADMIN_PASSWORD = "changeme"
 JWT_SECRET = "local-dev-secret-please-change"
+
+# Optional: without these, magic sign-in links are logged to the worker
+# console instead of e-mailed (fine for local dev).
+RESEND_API_KEY = ""
+EMAIL_FROM = "SV Beet & Bewegung <anmeldung@garten-floridsdorf.at>"
