@@ -71,6 +71,20 @@
       "when": 1783668875882,
       "tag": "0009_sour_plazm",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783673252557,
+      "tag": "0010_abandoned_reaper",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783686668892,
+      "tag": "0011_mighty_ezekiel_stane",
+      "breakpoints": true
     }
   ]
 }

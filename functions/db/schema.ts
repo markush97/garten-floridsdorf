@@ -17,16 +17,128 @@ export const polls = sqliteTable('polls', {
   closed_at: text('closed_at'),
 })
 
-export const users = sqliteTable('users', {
+// Accounts are invite-only: the admin creates the row, then hands out
+// an invite link. `username`/`password_hash`/`activated_at` stay null
+// until the person accepts the invite and picks their credentials.
+export const users = sqliteTable(
+  'users',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    slug: text('slug').notNull().unique(),
+    first_name: text('first_name').notNull(),
+    last_name: text('last_name').notNull(),
+    email: text('email'),
+    phone: text('phone'),
+    description: text('description'),
+    username: text('username'),
+    password_hash: text('password_hash'),
+    role: text('role', { enum: ['member', 'admin'] })
+      .notNull()
+      .default('member'),
+    activated_at: text('activated_at'),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('users_username_unique').on(t.username)],
+)
+
+/**
+ * Single-use auth tokens: invite links (14 days) and magic sign-in
+ * links (15 minutes). Like share tokens, only the SHA-256 hash is
+ * stored; the plaintext lives solely in the link.
+ */
+export const auth_tokens = sqliteTable('auth_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  slug: text('slug').notNull().unique(),
-  first_name: text('first_name').notNull(),
-  last_name: text('last_name').notNull(),
-  email: text('email'),
-  phone: text('phone'),
-  description: text('description'),
+  user_id: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  token_hash: text('token_hash').notNull().unique(),
+  purpose: text('purpose', { enum: ['invite', 'magic_link'] }).notNull(),
   created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
+  expires_at: text('expires_at').notNull(),
+  used_at: text('used_at'),
+})
+
+// Fixed-window rate limiting for the auth endpoints (failed logins,
+// magic-link requests), keyed by IP + bucket name.
+export const auth_rate_limits = sqliteTable(
+  'auth_rate_limits',
+  {
+    ip: text('ip').notNull(),
+    bucket: text('bucket').notNull(),
+    window_start: text('window_start').notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.ip, t.bucket] })],
+)
+
+/**
+ * A folder in the shared documents area. Self-referencing via
+ * `parent_id` — like `carried_from_task_id` on `event_tasks`, we
+ * model self-references as a plain integer (not a drizzle `.references()`)
+ * because self-referencing FKs break drizzle-kit's snapshotter; the
+ * query layer validates the target exists and rejects cycles.
+ * `parent_id = null` means the folder lives at the root.
+ */
+export const document_folders = sqliteTable('document_folders', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  parent_id: integer('parent_id'),
+  created_by_user_id: integer('created_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  created_by_name: text('created_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
+/**
+ * Shared documents for signed-in members (statutes, protocols,
+ * forms, …). Bytes live in R2 under `r2_key`; `uploaded_by_name`
+ * is snapshotted so the list survives user deletion. `folder_id`
+ * null means the document lives at the root of the shared area.
+ */
+export const documents = sqliteTable('documents', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  filename: text('filename').notNull(),
+  content_type: text('content_type').notNull(),
+  size: integer('size').notNull(),
+  r2_key: text('r2_key').notNull().unique(),
+  description: text('description'),
+  folder_id: integer('folder_id').references(() => document_folders.id, {
+    onDelete: 'set null',
+  }),
+  uploaded_by_user_id: integer('uploaded_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  uploaded_by_name: text('uploaded_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
+/**
+ * A share link for a single document or an entire folder — exactly
+ * one of `document_id` / `folder_id` is set (enforced at the query
+ * layer, D1 has no partial-unique/check-constraint ergonomics worth
+ * fighting for a two-column pair). A folder token grants access to
+ * every document nested under that folder, recursively. Mirrors
+ * `event_share_tokens`: only the SHA-256 hash is ever persisted.
+ */
+export const document_share_tokens = sqliteTable('document_share_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token_hash: text('token_hash').notNull().unique(),
+  document_id: integer('document_id').references(() => documents.id, {
+    onDelete: 'cascade',
+  }),
+  folder_id: integer('folder_id').references(() => document_folders.id, {
+    onDelete: 'cascade',
+  }),
+  label: text('label'),
+  created_at: text('created_at').notNull(),
+  // ISO date string (YYYY-MM-DD) or null = never expires.
+  expires_at: text('expires_at'),
+  revoked_at: text('revoked_at'),
+  last_hit_at: text('last_hit_at'),
 })
 
 export const poll_options = sqliteTable('poll_options', {
@@ -350,9 +462,9 @@ export const event_share_views = sqliteTable('event_share_views', {
   viewed_at: text('viewed_at').notNull(),
 })
 
-// Inferred row types — the server uses these in query returns and
-// the route handlers use them for response shapes. They never leak
-// `token_hash` to the client; the admin sees a fingerprint instead
-// (see [`eventShareTokenSchema`](../worker/index.ts )).
+// Inferred row types for query returns and route-handler response
+// shapes. `token_hash` never leaves the server — the admin routes
+// expose a short fingerprint instead.
 export type EventShareTokenRow = typeof event_share_tokens.$inferSelect
 export type EventShareViewRow = typeof event_share_views.$inferSelect
+export type DocumentShareTokenRow = typeof document_share_tokens.$inferSelect
