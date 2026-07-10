@@ -12,6 +12,7 @@ import AttachmentsSection from './AttachmentsSection'
 import AttendeesPanel from './AttendeesPanel'
 import DecisionsPanel from './DecisionsPanel'
 import EventPdfButton from './EventPdfButton'
+import SharePanel from './SharePanel'
 import TasksPanel from './TasksPanel'
 
 const FIELD =
@@ -83,6 +84,16 @@ export default function EventWorkspace({
         onTranscriptionChange={setTranscriptionDraft}
         transcriptionDraft={transcriptionDraft}
       />
+      <Separator />
+      <section aria-label="Share-Links" className="space-y-3">
+        <p className="text-sm font-semibold text-forest-900">Share-Link</p>
+        <p className="text-xs text-forest-700/70">
+          Verteile den Termin an Vereinsmitglieder oder externe Gäste — der Link
+          funktioniert ohne Login und enthält nur die für sie bestimmten
+          Informationen (Tagesordnung + Status).
+        </p>
+        <SharePanel event={event} />
+      </section>
     </div>
   )
 }

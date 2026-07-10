@@ -9,6 +9,7 @@ import {
 import { createDb } from '../functions/_lib/db'
 import { AppError, makeError } from '../functions/_lib/errors'
 import { buildEventIcal, ICAL_CONTENT_TYPE } from '../functions/_lib/ical'
+import { isValidShareTokenShape } from '../functions/_lib/share-token'
 import {
   carryOverTaskInputSchema,
   createEventAgendaItemInputSchema,
@@ -16,6 +17,7 @@ import {
   createEventAttendeeInputSchema,
   createEventDecisionInputSchema,
   createEventInputSchema,
+  createEventShareTokenInputSchema,
   createEventTaskInputSchema,
   isAllowedAttachmentContentType,
   MAX_ATTACHMENT_SIZE_BYTES,
@@ -86,6 +88,13 @@ import {
   listAllPolls,
   upsertVotes,
 } from '../functions/db/queries/polls'
+import {
+  createShareToken,
+  isShareTokenActive,
+  listShareTokens,
+  resolveShareToken,
+  revokeShareToken,
+} from '../functions/db/queries/share-tokens'
 import {
   createUser,
   deleteUser,
@@ -219,6 +228,36 @@ app.post('/admin/login', async (c) => {
   const token = await signAdminToken(c.env.JWT_SECRET)
   setAdminCookie(c, token)
   return c.json({ ok: true })
+})
+
+// ── Public share endpoint (no auth) ────────────────────────────────────────
+
+/**
+ * Returns the public, read-only event payload for a valid share
+ * token. Used by the `/termine/:slug/:token` page.
+ *
+ * The token shape is constrained by [`isValidShareTokenShape`]
+ * before we hash it — the public route is the only entry point
+ * into a hash lookup, and an attacker could otherwise probe with
+ * crafted strings that hash to colliding shapes.
+ */
+app.get('/share/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!isValidShareTokenShape(token)) {
+    return c.json(makeError('NOT_FOUND', 'Share-Link nicht gefunden.'), 404)
+  }
+  const db = createDb(c.env.DB)
+  const resolved = await resolveShareToken(db, token)
+  return c.json({
+    title: resolved.event.title,
+    scheduled_date: resolved.event.scheduled_date,
+    scheduled_time: resolved.event.scheduled_time,
+    location: resolved.event.location,
+    agenda: resolved.event.agenda,
+    slug: resolved.event.slug,
+    label: resolved.label,
+    agenda_items: resolved.agenda_items,
+  })
 })
 
 app.use('/admin/*', requireAdmin)
@@ -860,6 +899,94 @@ app.post('/admin/events/:slug/tasks/carry-over', async (c) => {
   const event = await findEventBySlugOrThrow(db, slug)
   const task = await carryOverTask(db, event.id, parsed.data)
   return c.json(task, 201)
+})
+
+// ── Share links (admin) ────────────────────────────────────────────────────
+
+/**
+ * Lists share tokens for an event. The plaintext is never returned
+ * — we expose a short fingerprint (first 8 chars) plus the
+ * status so the admin can distinguish tokens that share the same
+ * label.
+ */
+app.get('/admin/events/:slug/share-tokens', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const rows = await listShareTokens(db, event.id)
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      event_id: row.event_id,
+      token_fingerprint: row.token_hash.slice(0, 8),
+      label: row.label,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      revoked_at: row.revoked_at,
+      last_hit_at: row.last_hit_at,
+      is_active: isShareTokenActive(row),
+    })),
+  )
+})
+
+/**
+ * Creates a new share token. The plaintext is returned exactly
+ * once; only its SHA-256 hash is persisted.
+ */
+app.post('/admin/events/:slug/share-tokens', async (c) => {
+  const slug = c.req.param('slug')
+  const body = await c.req.json()
+  const parsed = createEventShareTokenInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(makeError('VALIDATION_ERROR', parsed.error.message), 400)
+  }
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  const { row, plaintext } = await createShareToken(db, event.id, {
+    label: parsed.data.label ?? null,
+    expires_at: parsed.data.expires_at ?? null,
+  })
+  return c.json(
+    {
+      token: {
+        id: row.id,
+        event_id: row.event_id,
+        token_fingerprint: row.token_hash.slice(0, 8),
+        label: row.label,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        revoked_at: row.revoked_at,
+        last_hit_at: row.last_hit_at,
+        is_active: true,
+      },
+      plaintext,
+    },
+    201,
+  )
+})
+
+/**
+ * Revoke a share token. The token still exists in the table but
+ * the public endpoint will return 410 Gone. Idempotent: revoking
+ * an already-revoked token returns 400.
+ */
+app.post('/admin/events/:slug/share-tokens/:id/revoke', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const row = await revokeShareToken(db, id)
+  return c.json({
+    id: row.id,
+    event_id: row.event_id,
+    label: row.label,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    revoked_at: row.revoked_at,
+    last_hit_at: row.last_hit_at,
+    is_active: false,
+  })
 })
 
 export default app

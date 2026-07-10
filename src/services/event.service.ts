@@ -7,13 +7,17 @@ import type {
   CreateEventAttendeeInput,
   CreateEventDecisionInput,
   CreateEventInput,
+  CreateEventShareTokenInput,
+  CreateEventShareTokenResponse,
   CreateEventTaskInput,
   Event,
   EventAgendaVote,
   EventAttachment,
   EventDecision,
+  EventShareToken,
   EventTask,
   EventWithDetails,
+  SharedEvent,
   UpdateAttendeeVoteInput,
   UpdateEventAgendaItemInput,
   UpdateEventAgendaVoteInput,
@@ -23,6 +27,10 @@ import type {
   UpdateEventInput,
   UpdateEventTaskInput,
 } from '~func/contracts/event'
+
+// Types only used inside the admin-shape below — kept as a private
+// alias so the public service surface doesn't grow unnecessarily.
+type AdminShareToken = EventShareToken & { is_active: boolean }
 
 export function useAdminEvents() {
   return useQuery({
@@ -579,4 +587,65 @@ export function useCarryOverTask(slug: string) {
       })
     },
   })
+}
+
+// ── Pre-meeting share tokens ────────────────────────────────────────────────
+
+export function useShareTokens(slug: string) {
+  return useQuery({
+    queryKey: [...queryKeys.events.detail(slug), 'share-tokens'] as const,
+    queryFn: () =>
+      apiClient<AdminShareToken[]>(`/admin/events/${slug}/share-tokens`),
+  })
+}
+
+export function useCreateShareToken(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateEventShareTokenInput) =>
+      apiClient<CreateEventShareTokenResponse>(
+        `/admin/events/${slug}/share-tokens`,
+        { method: 'POST', body: data },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+export function useRevokeShareToken(slug: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<AdminShareToken>(
+        `/admin/events/${slug}/share-tokens/${id}/revoke`,
+        { method: 'POST', body: {} },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.events.detail(slug),
+      })
+    },
+  })
+}
+
+/**
+ * Public, no-auth hook for the share page. Calls the public
+ * `/share/:token` endpoint directly. Returns the parsed payload or
+ * `null` on any error (404 / 410 / network). The page renders a
+ * friendly "Share-Link nicht mehr gültig" panel when this is null.
+ */
+export async function fetchSharedEvent(
+  token: string,
+): Promise<SharedEvent | null> {
+  if (!token) return null
+  try {
+    const res = await fetch(`/api/share/${encodeURIComponent(token)}`)
+    if (!res.ok) return null
+    return (await res.json()) as SharedEvent
+  } catch {
+    return null
+  }
 }

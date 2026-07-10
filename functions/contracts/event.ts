@@ -552,3 +552,95 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>
 export type CreateEventTaskInput = z.infer<typeof createEventTaskInputSchema>
 export type UpdateEventTaskInput = z.infer<typeof updateEventTaskInputSchema>
 export type CarryOverTaskInput = z.infer<typeof carryOverTaskInputSchema>
+
+// ── Pre-meeting share tokens ────────────────────────────────────────────────
+
+/**
+ * A pre-meeting share token. Distributed as `?token=…` (or as a
+ * path segment) on the public read-only page. The plaintext token
+ * is only returned once on creation — the server only stores the
+ * SHA-256 hash.
+ *
+ * Validity criteria the public endpoint enforces, in order:
+ *   - token_hash exists
+ *   - revoked_at IS NULL
+ *   - expires_at IS NULL OR expires_at > today (UTC date)
+ */
+export const eventShareTokenSchema = z.object({
+  id: z.number(),
+  event_id: z.number(),
+  // Never the raw token. We expose a short fingerprint prefix so the
+  // admin can tell tokens apart in the list view without seeing the
+  // secret itself.
+  token_fingerprint: z.string(),
+  label: z.string().nullable(),
+  created_at: z.string(),
+  expires_at: z.string().nullable(),
+  revoked_at: z.string().nullable(),
+  last_hit_at: z.string().nullable(),
+})
+
+export const createEventShareTokenInputSchema = z
+  .object({
+    label: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    /**
+     * `YYYY-MM-DD` UTC. Null means "never expires". The admin UI
+     * never sets this in the first pass; we keep the field in the
+     * contract so the token-format work doesn't have to be redone.
+     */
+    expires_at: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format YYYY-MM-DD')
+      .nullable()
+      .optional(),
+  })
+  .strict()
+
+/**
+ * The full response shape returned when the admin creates a new
+ * share token. Includes the plaintext [`token`](../worker/index.ts )
+ * exactly once — the admin UI must show it then forget it.
+ */
+export const createEventShareTokenResponseSchema = z.object({
+  token: eventShareTokenSchema,
+  plaintext: z.string().regex(/^[A-Za-z0-9_-]+$/),
+})
+
+/**
+ * Public, unauthenticated payload returned by `GET /api/share/:token`.
+ * Intentionally minimal: the exact fields that make sense to share
+ * with attendees (no internal votes, no admin's notes, no
+ * attachments). The agenda items include their status so attendees
+ * can see what's been resolved already.
+ */
+export const sharedEventSchema = z.object({
+  title: z.string(),
+  scheduled_date: z.string(),
+  scheduled_time: z.string().nullable(),
+  location: z.string().nullable(),
+  agenda: z.string().nullable(),
+  slug: z.string(),
+  agenda_items: z.array(
+    z.object({
+      title: z.string(),
+      status: agendaStatusSchema,
+      sort_order: z.number(),
+    }),
+  ),
+  // The label, if any, lets attendees know who shared the link
+  // ("Vorstand", "Newsletter"). Defaults to a generic phrase.
+  label: z.string().nullable(),
+})
+
+export type EventShareToken = z.infer<typeof eventShareTokenSchema>
+export type CreateEventShareTokenInput = z.infer<
+  typeof createEventShareTokenInputSchema
+>
+export type CreateEventShareTokenResponse = z.infer<
+  typeof createEventShareTokenResponseSchema
+>
+export type SharedEvent = z.infer<typeof sharedEventSchema>

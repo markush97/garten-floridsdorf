@@ -308,3 +308,51 @@ export const event_tasks = sqliteTable('event_tasks', {
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 })
+
+/**
+ * A share token that lets anyone with the link view a read-only
+ * snapshot of the event — useful for distributing the agenda to
+ * attendees before the meeting. We store the SHA-256 hash of the
+ * token, not the token itself, so a database leak doesn't expose
+ * existing share links. Tokens can expire and can be revoked.
+ */
+export const event_share_tokens = sqliteTable('event_share_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  event_id: integer('event_id')
+    .notNull()
+    .references(() => events.id, { onDelete: 'cascade' }),
+  // SHA-256 of the raw token, hex-encoded (64 chars). We index this
+  // for O(1) public-lookup.
+  token_hash: text('token_hash').notNull().unique(),
+  // Optional admin-set label so the admin can distinguish multiple
+  // share links for the same event ("Vorstand", "Newsletter", …).
+  label: text('label'),
+  created_at: text('created_at').notNull(),
+  // ISO date string (YYYY-MM-DD) or null = never expires.
+  expires_at: text('expires_at'),
+  // ISO timestamp; null = still active.
+  revoked_at: text('revoked_at'),
+  // Last time the public endpoint validated this token. Useful for
+  // the admin to see "yes, the link worked" without storing any PII.
+  last_hit_at: text('last_hit_at'),
+})
+
+/**
+ * Audit log of public share-page hits. Records the token (FK) and
+ * the timestamp so the admin can see usage patterns. No IP, no
+ * User-Agent, no other PII.
+ */
+export const event_share_views = sqliteTable('event_share_views', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token_id: integer('token_id')
+    .notNull()
+    .references(() => event_share_tokens.id, { onDelete: 'cascade' }),
+  viewed_at: text('viewed_at').notNull(),
+})
+
+// Inferred row types — the server uses these in query returns and
+// the route handlers use them for response shapes. They never leak
+// `token_hash` to the client; the admin sees a fingerprint instead
+// (see [`eventShareTokenSchema`](../worker/index.ts )).
+export type EventShareTokenRow = typeof event_share_tokens.$inferSelect
+export type EventShareViewRow = typeof event_share_views.$inferSelect

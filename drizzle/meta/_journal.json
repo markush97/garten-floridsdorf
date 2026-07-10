@@ -64,6 +64,13 @@
       "when": 1781162997805,
       "tag": "0008_unknown_scourge",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783668875882,
+      "tag": "0009_sour_plazm",
+      "breakpoints": true
     }
   ]
 }
