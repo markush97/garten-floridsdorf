@@ -8,6 +8,7 @@ import {
 } from '../functions/_lib/auth'
 import { createDb } from '../functions/_lib/db'
 import { AppError, makeError } from '../functions/_lib/errors'
+import { buildEventIcal, ICAL_CONTENT_TYPE } from '../functions/_lib/ical'
 import {
   carryOverTaskInputSchema,
   createEventAgendaItemInputSchema,
@@ -756,6 +757,34 @@ app.delete('/admin/events/:slug/decisions/:id', async (c) => {
   const event = await findEventBySlugOrThrow(db, slug)
   await deleteDecision(db, event.id, id)
   return c.json({ ok: true })
+})
+
+// ── iCal export ────────────────────────────────────────────────────────────
+
+/**
+ * Streams an iCalendar (RFC 5545) document for the event. The
+ * content type is `text/calendar; charset=utf-8` so the browser
+ * triggers a download with the right extension. The file is
+ * attachment-disposition so the calendar app can import it
+ * directly without navigating to a viewer.
+ */
+app.get('/admin/events/:slug/ical', async (c) => {
+  const slug = c.req.param('slug')
+  const db = createDb(c.env.DB)
+  const event = await findEventBySlugOrThrow(db, slug)
+  // We need the full event (with attendees, agenda items, etc.)
+  // because the iCal description embeds the agenda excerpt. The
+  // detail loader is cheap — single event + a handful of joins.
+  const eventWithDetails = await findEventWithDetails(db, event.id)
+  const ical = buildEventIcal(eventWithDetails)
+  const filename = `${safeFilename(eventWithDetails.title)}.ics`
+  return new Response(ical, {
+    headers: {
+      'Content-Type': ICAL_CONTENT_TYPE,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'private, no-store',
+    },
+  })
 })
 
 // ── Tasks / Aufgaben ────────────────────────────────────────────────────────

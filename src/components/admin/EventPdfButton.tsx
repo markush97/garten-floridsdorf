@@ -1,4 +1,8 @@
-import { Download01Icon, PrinterIcon } from '@hugeicons/core-free-icons'
+import {
+  Calendar01Icon,
+  Download01Icon,
+  PrinterIcon,
+} from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
@@ -16,11 +20,13 @@ type Props = {
 const IFRAME_TITLE = 'protokoll-druckvorschau'
 
 /**
- * Renders two adjacent actions on the event editor: "Drucken / PDF"
+ * Renders three adjacent actions on the event editor: "Drucken / PDF"
  * (opens the browser print dialog with the full protocol layout — the
- * user picks "Save as PDF" there) and "HTML herunterladen" (downloads
- * the same self-contained document for archiving). Both go through the
- * same `buildPrintDocument` so the layout is identical.
+ * user picks "Save as PDF" there), "HTML herunterladen" (downloads the
+ * same self-contained document for archiving), and "iCal" (downloads
+ * an RFC 5545 .ics file the user can import into any calendar app).
+ * The PDF and HTML go through `buildPrintDocument`; the iCal goes
+ * through the worker's `/admin/events/:slug/ical` endpoint.
  *
  * The print view lives in a hidden iframe so it can paginate using the
  * browser's native print engine — that gives us perfect text quality
@@ -194,6 +200,28 @@ export default function EventPdfButton({ event, transcriptionHtml }: Props) {
           strokeWidth={1.6}
         />
         Als HTML
+      </Button>
+      <Button
+        aria-label="Termin als iCal-Datei herunterladen"
+        asChild
+        className="text-xs"
+        data-testid="event-ical-download"
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <a
+          aria-label="Termin als iCal-Datei herunterladen"
+          href={`/api/admin/events/${event.slug}/ical`}
+        >
+          <HugeiconsIcon
+            aria-hidden="true"
+            icon={Calendar01Icon}
+            size={14}
+            strokeWidth={1.6}
+          />
+          iCal
+        </a>
       </Button>
     </div>
   )
