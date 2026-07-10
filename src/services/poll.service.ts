@@ -8,7 +8,8 @@ export function useActivePoll() {
     queryKey: queryKeys.polls.active,
     queryFn: () => apiClient<Poll>('/polls/active'),
     retry: (count, err) => {
-      if ((err as { status?: number }).status === 404) return false
+      const status = (err as { status?: number }).status
+      if (status === 404 || status === 401) return false
       return count < 1
     },
   })
@@ -25,18 +26,27 @@ export function useNextEvent() {
   })
 }
 
-export function usePoll(slug: string) {
+function withToken(path: string, token?: string): string {
+  return token ? `${path}?token=${encodeURIComponent(token)}` : path
+}
+
+export function usePoll(slug: string, token?: string) {
   return useQuery({
-    queryKey: queryKeys.polls.detail(slug),
-    queryFn: () => apiClient<Poll>(`/polls/${slug}`),
+    queryKey: [...queryKeys.polls.detail(slug), token] as const,
+    queryFn: () => apiClient<Poll>(withToken(`/polls/${slug}`, token)),
+    retry: (count, err) => {
+      const status = (err as { status?: number }).status
+      if (status === 401 || status === 404 || status === 410) return false
+      return count < 1
+    },
   })
 }
 
-export function useSubmitVotes(pollSlug: string) {
+export function useSubmitVotes(pollSlug: string, token?: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: SubmitVotesInput) =>
-      apiClient<Poll>(`/polls/${pollSlug}/votes`, {
+      apiClient<Poll>(withToken(`/polls/${pollSlug}/votes`, token), {
         method: 'POST',
         body: data,
       }),

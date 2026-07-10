@@ -462,9 +462,37 @@ export const event_share_views = sqliteTable('event_share_views', {
   viewed_at: text('viewed_at').notNull(),
 })
 
+/**
+ * A share token that grants access to view and vote on a single poll
+ * without logging in — for inviting non-members to a specific
+ * Terminabstimmung. Mirrors `event_share_tokens`: only the SHA-256
+ * hash is ever persisted.
+ */
+export const poll_share_tokens = sqliteTable('poll_share_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  poll_id: integer('poll_id')
+    .notNull()
+    .references(() => polls.id, { onDelete: 'cascade' }),
+  token_hash: text('token_hash').notNull().unique(),
+  label: text('label'),
+  created_at: text('created_at').notNull(),
+  expires_at: text('expires_at'),
+  revoked_at: text('revoked_at'),
+  last_hit_at: text('last_hit_at'),
+})
+
+export const poll_share_views = sqliteTable('poll_share_views', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token_id: integer('token_id')
+    .notNull()
+    .references(() => poll_share_tokens.id, { onDelete: 'cascade' }),
+  viewed_at: text('viewed_at').notNull(),
+})
+
 // Inferred row types for query returns and route-handler response
 // shapes. `token_hash` never leaves the server — the admin routes
 // expose a short fingerprint instead.
 export type EventShareTokenRow = typeof event_share_tokens.$inferSelect
 export type EventShareViewRow = typeof event_share_views.$inferSelect
 export type DocumentShareTokenRow = typeof document_share_tokens.$inferSelect
+export type PollShareTokenRow = typeof poll_share_tokens.$inferSelect

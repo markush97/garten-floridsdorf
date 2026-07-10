@@ -54,6 +54,7 @@ import {
 import {
   addPollOptionsInputSchema,
   createPollInputSchema,
+  createPollShareTokenInputSchema,
   finalizePollInputSchema,
   submitVotesInputSchema,
 } from '../functions/contracts/poll'
@@ -124,6 +125,13 @@ import {
   updateEvent,
   updateTask,
 } from '../functions/db/queries/events'
+import {
+  createShareToken as createPollShareToken,
+  isShareTokenActive as isPollShareTokenActive,
+  listShareTokens as listPollShareTokens,
+  resolveShareToken as resolvePollShareToken,
+  revokeShareToken as revokePollShareToken,
+} from '../functions/db/queries/poll-share-tokens'
 import {
   addPollOptions,
   createPollWithOptions,
@@ -207,12 +215,44 @@ app.onError((err, c) => {
 
 // ── Public endpoints ────────────────────────────────────────────────────────
 
+/**
+ * Votes and voter names are visible to anyone who can view a poll, so
+ * unlike the read-only event/document share links, poll access is
+ * gated: either a signed-in session (member or admin) or a valid,
+ * non-revoked, non-expired share token issued for that specific poll.
+ */
+async function assertPollAccess(
+  c: Context<AppEnv>,
+  db: ReturnType<typeof createDb>,
+  pollId: number,
+) {
+  const session = await getSession(c)
+  if (session) return
+  const token = c.req.query('token')
+  if (!token || !isValidTokenShape(token)) {
+    throw new AppError(
+      'UNAUTHORIZED',
+      'Anmeldung oder Einladungslink erforderlich',
+      401,
+    )
+  }
+  const resolved = await resolvePollShareToken(db, token)
+  if (resolved.pollId !== pollId) {
+    throw new AppError(
+      'UNAUTHORIZED',
+      'Anmeldung oder Einladungslink erforderlich',
+      401,
+    )
+  }
+}
+
 app.get('/polls/active', async (c) => {
   const db = createDb(c.env.DB)
   const poll = await findActivePollWithDetails(db)
   if (!poll) {
     return c.json(makeError('NOT_FOUND', 'Keine aktive Umfrage'), 404)
   }
+  await assertPollAccess(c, db, poll.id)
   return c.json(poll)
 })
 
@@ -234,6 +274,7 @@ app.get('/polls/:slug', async (c) => {
   const slug = c.req.param('slug')
   const db = createDb(c.env.DB)
   const poll = await findPollWithDetailsBySlug(db, slug)
+  await assertPollAccess(c, db, poll.id)
   return c.json(poll)
 })
 
@@ -249,6 +290,7 @@ app.post('/polls/:slug/votes', async (c) => {
   }
   const db = createDb(c.env.DB)
   const poll = await findPollWithDetailsBySlug(db, slug)
+  await assertPollAccess(c, db, poll.id)
 
   const VOTE_LIMIT = 5
   const ip = clientIp(c)
@@ -932,6 +974,105 @@ app.delete('/admin/polls/:id', async (c) => {
   const db = createDb(c.env.DB)
   await deletePoll(db, id)
   return c.json({ ok: true })
+})
+
+// ── Share links (admin) ─────────────────────────────────────────────────────
+
+/**
+ * Lists share tokens for a poll. The plaintext is never returned —
+ * we expose a short fingerprint (first 8 chars) plus the status so
+ * the admin can distinguish tokens that share the same label.
+ */
+app.get('/admin/polls/:id/share-tokens', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const rows = await listPollShareTokens(db, id)
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      poll_id: row.poll_id,
+      token_fingerprint: row.token_hash.slice(0, 8),
+      label: row.label,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      revoked_at: row.revoked_at,
+      last_hit_at: row.last_hit_at,
+      is_active: isPollShareTokenActive(row),
+    })),
+  )
+})
+
+/**
+ * Creates a new share token. The plaintext is returned exactly
+ * once; only its SHA-256 hash is persisted.
+ */
+app.post('/admin/polls/:id/share-tokens', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const body = await c.req.json()
+  const parsed = createPollShareTokenInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const { row, plaintext } = await createPollShareToken(db, id, {
+    label: parsed.data.label ?? null,
+    expires_at: parsed.data.expires_at ?? null,
+  })
+  return c.json(
+    {
+      token: {
+        id: row.id,
+        poll_id: row.poll_id,
+        token_fingerprint: row.token_hash.slice(0, 8),
+        label: row.label,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        revoked_at: row.revoked_at,
+        last_hit_at: row.last_hit_at,
+        is_active: true,
+      },
+      plaintext,
+    },
+    201,
+  )
+})
+
+/**
+ * Revoke a share token. The row is kept so the admin list still
+ * shows it; the public endpoint answers 401 from then on.
+ */
+app.post('/admin/polls/:id/share-tokens/:tokenId/revoke', async (c) => {
+  const id = Number(c.req.param('id'))
+  const tokenId = Number(c.req.param('tokenId'))
+  if (
+    !Number.isInteger(id) ||
+    id <= 0 ||
+    !Number.isInteger(tokenId) ||
+    tokenId <= 0
+  ) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const row = await revokePollShareToken(db, id, tokenId)
+  return c.json({
+    id: row.id,
+    poll_id: row.poll_id,
+    label: row.label,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    revoked_at: row.revoked_at,
+    last_hit_at: row.last_hit_at,
+    is_active: false,
+  })
 })
 
 app.get('/admin/users', async (c) => {

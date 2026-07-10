@@ -11,11 +11,11 @@ const navigationItems = [
 function Navbar() {
   return (
     <header className="sticky top-3 z-10 rounded-[1.25rem] bg-white/72 px-3 py-2.5 shadow-[0_14px_32px_rgba(31,61,43,0.08)] ring-1 ring-inset ring-white/40 backdrop-blur-md sm:top-4 sm:rounded-[1.75rem] sm:px-6 sm:py-3 sm:shadow-[0_18px_40px_rgba(31,61,43,0.08)]">
-      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <a className="group flex items-center gap-3" href="#top">
+      <div className="flex items-center justify-between gap-3">
+        <a className="group flex min-w-0 items-center gap-3" href="#top">
           <img
             alt="Icon von SV Beet & Bewegung"
-            className="h-10 w-10 mix-blend-multiply transition duration-500 group-hover:rotate-[8deg] group-hover:scale-105 sm:h-12 sm:w-12"
+            className="h-10 w-10 shrink-0 mix-blend-multiply transition duration-500 group-hover:rotate-[8deg] group-hover:scale-105 sm:h-12 sm:w-12"
             src="/brand/icon.png"
           />
           <div className="min-w-0">
@@ -30,7 +30,7 @@ function Navbar() {
 
         <nav
           aria-label="Hauptnavigation"
-          className="-mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="hidden shrink-0 gap-1 lg:flex"
         >
           {navigationItems.map((item) => (
             <a
@@ -53,10 +53,10 @@ function Navbar() {
         </nav>
 
         <Link
-          className="inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-full px-3 text-sm font-semibold text-forest-700 transition hover:bg-cream-50/80 hover:text-forest-900 sm:self-auto sm:px-4 lg:ml-2"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold text-forest-700 transition hover:bg-cream-50/80 hover:text-forest-900 sm:px-4 lg:ml-2"
           to="/login"
         >
-          Mitglieder-Login
+          Login
         </Link>
       </div>
     </header>

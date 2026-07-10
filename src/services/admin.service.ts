@@ -4,8 +4,11 @@ import { queryKeys } from '~/lib/query-keys'
 import type {
   AddPollOptionsInput,
   CreatePollInput,
+  CreatePollShareTokenInput,
+  CreatePollShareTokenResponse,
   FinalizePollInput,
   Poll,
+  PollShareToken,
 } from '~func/contracts/poll'
 
 type AdminPoll = {
@@ -18,6 +21,10 @@ type AdminPoll = {
   created_at: string
   closed_at: string | null
 }
+
+// Kept as a private alias so the public service surface doesn't grow
+// unnecessarily — mirrors `AdminShareToken` in event.service.ts.
+type AdminPollShareToken = PollShareToken & { is_active: boolean }
 
 export function useAdminPolls() {
   return useQuery({
@@ -84,6 +91,48 @@ export function useAddPollOptions() {
         queryKey: queryKeys.polls.detail(String(id)),
       })
       void queryClient.invalidateQueries({ queryKey: queryKeys.polls.active })
+    },
+  })
+}
+
+// ── Invite share tokens ──────────────────────────────────────────────────────
+
+export function usePollShareTokens(pollId: number) {
+  return useQuery({
+    queryKey: queryKeys.polls.shareTokens(pollId),
+    queryFn: () =>
+      apiClient<AdminPollShareToken[]>(`/admin/polls/${pollId}/share-tokens`),
+  })
+}
+
+export function useCreatePollShareToken(pollId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreatePollShareTokenInput) =>
+      apiClient<CreatePollShareTokenResponse>(
+        `/admin/polls/${pollId}/share-tokens`,
+        { method: 'POST', body: data },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.polls.shareTokens(pollId),
+      })
+    },
+  })
+}
+
+export function useRevokePollShareToken(pollId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<AdminPollShareToken>(
+        `/admin/polls/${pollId}/share-tokens/${id}/revoke`,
+        { method: 'POST', body: {} },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.polls.shareTokens(pollId),
+      })
     },
   })
 }

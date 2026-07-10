@@ -19,7 +19,7 @@ type SavedVote = {
   comments: Record<number, string>
 }
 
-type Props = { poll: Poll }
+type Props = { poll: Poll; token?: string }
 
 const RESPONSE_OPTIONS: Array<{
   value: ResponseValue
@@ -66,7 +66,7 @@ function loadSavedVote(slug: string): SavedVote | null {
   }
 }
 
-export default function VoteForm({ poll }: Props) {
+export default function VoteForm({ poll, token }: Props) {
   const [voterName, setVoterName] = useState(
     () =>
       loadSavedVote(poll.slug)?.voter_name ??
@@ -90,7 +90,7 @@ export default function VoteForm({ poll }: Props) {
     Boolean(loadSavedVote(poll.slug)?.voter_name),
   )
 
-  const { mutate: submitVotes, isPending } = useSubmitVotes(poll.slug)
+  const { mutate: submitVotes, isPending } = useSubmitVotes(poll.slug, token)
 
   function handleNameChange(val: string) {
     setVoterName(val)

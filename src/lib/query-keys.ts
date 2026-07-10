@@ -19,6 +19,7 @@ export const queryKeys = {
     next: ['polls', 'next'] as const,
     detail: (pollId: string) => ['polls', 'detail', pollId] as const,
     admin: ['polls', 'admin'] as const,
+    shareTokens: (pollId: number) => ['polls', pollId, 'share-tokens'] as const,
   },
   users: {
     all: ['users'] as const,

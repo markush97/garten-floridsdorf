@@ -32,7 +32,7 @@ describe('isValidTokenShape', () => {
     )
   })
 
-  it('rejects strings shorter than 32 chars', () => {
+  it('rejects strings shorter than 20 chars', () => {
     expect(isValidTokenShape('short')).toBe(false)
   })
 

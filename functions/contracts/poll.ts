@@ -100,3 +100,55 @@ export const nextEventSchema = z.object({
   option: pollOptionSchema,
 })
 export type NextEvent = z.infer<typeof nextEventSchema>
+
+/**
+ * A share token that grants access to view and vote on a single poll
+ * without logging in. Mirrors `eventShareTokenSchema` in
+ * `functions/contracts/event.ts`.
+ */
+export const pollShareTokenSchema = z.object({
+  id: z.number(),
+  poll_id: z.number(),
+  // Never the raw token. We expose a short fingerprint prefix so the
+  // admin can tell tokens apart in the list view without seeing the
+  // secret itself.
+  token_fingerprint: z.string(),
+  label: z.string().nullable(),
+  created_at: z.string(),
+  expires_at: z.string().nullable(),
+  revoked_at: z.string().nullable(),
+  last_hit_at: z.string().nullable(),
+})
+
+export const createPollShareTokenInputSchema = z
+  .object({
+    label: z
+      .union([z.string().max(200), z.null()])
+      .transform((v) => (v == null ? null : v.trim()))
+      .transform((v) => (v == null || v.length === 0 ? null : v))
+      .optional(),
+    expires_at: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format YYYY-MM-DD')
+      .nullable()
+      .optional(),
+  })
+  .strict()
+
+/**
+ * The full response shape returned when the admin creates a new
+ * share token. Includes the plaintext token exactly once — the
+ * admin UI must show it then forget it.
+ */
+export const createPollShareTokenResponseSchema = z.object({
+  token: pollShareTokenSchema,
+  plaintext: z.string().regex(/^[A-Za-z0-9_-]+$/),
+})
+
+export type PollShareToken = z.infer<typeof pollShareTokenSchema>
+export type CreatePollShareTokenInput = z.infer<
+  typeof createPollShareTokenInputSchema
+>
+export type CreatePollShareTokenResponse = z.infer<
+  typeof createPollShareTokenResponseSchema
+>

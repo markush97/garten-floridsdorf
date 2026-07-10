@@ -32,6 +32,7 @@ import { Label } from '~/ui/label'
 import { RichTextEditor } from '~/ui/rich-text-editor'
 import { Separator } from '~/ui/separator'
 import { EditorShell } from './form-ui'
+import PollSharePanel from './PollSharePanel'
 
 type OptionDraft = {
   uid: number
@@ -401,6 +402,23 @@ function PollDetailEditor({ pollId }: { pollId: number }) {
               /poll/{pollSummary.slug}
             </a>
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-[1.25rem] bg-white/75 p-5 ring-1 ring-inset ring-white/40">
+          <p className="text-sm font-semibold text-forest-900">
+            Einladungslinks
+          </p>
+          <p className="text-xs text-forest-700/70">
+            Wer diesen Link öffnet, kann diese Terminabstimmung sehen und
+            abstimmen, auch ohne Mitglieder-Login.
+          </p>
+          <PollSharePanel
+            poll={{
+              id: pollSummary.id,
+              slug: pollSummary.slug,
+              title: pollSummary.title,
+            }}
+          />
         </div>
 
         {pollSummary.final_option_id && lockedOption && (

@@ -292,6 +292,11 @@ function FileExplorer({
         parentId={folderId}
       />
       <RenameDialog
+        key={
+          renameTarget
+            ? `${renameTarget.type}-${renameTarget.type === 'folder' ? renameTarget.folder.id : renameTarget.document.id}`
+            : 'none'
+        }
         onOpenChange={(open) => !open && setRenameTarget(null)}
         target={renameTarget}
       />
@@ -862,15 +867,7 @@ function RenameDialog({
   }
 
   return (
-    <Dialog
-      onOpenChange={onOpenChange}
-      open={target !== null}
-      key={
-        target
-          ? `${target.type}-${target.type === 'folder' ? target.folder.id : target.document.id}`
-          : 'none'
-      }
-    >
+    <Dialog onOpenChange={onOpenChange} open={target !== null}>
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>

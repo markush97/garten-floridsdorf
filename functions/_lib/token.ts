@@ -2,14 +2,16 @@
  * Opaque bearer-token helpers shared by share links, invites and
  * magic sign-in links.
  *
- * A token is 32 random bytes, base64url-encoded (43 chars, no
- * padding). We hash it with SHA-256 and store only the hex hash on
- * the server; the plaintext is only ever embedded in the link we
+ * A token is 16 random bytes, base64url-encoded (22 chars, no
+ * padding) — 128 bits of entropy, far beyond what's brute-forceable,
+ * while keeping share links short enough to read out or paste
+ * comfortably. We hash it with SHA-256 and store only the hex hash
+ * on the server; the plaintext is only ever embedded in the link we
  * hand out, so a database leak doesn't expose live links.
  */
 
 export function generateToken(): string {
-  const bytes = new Uint8Array(32)
+  const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
   return bytesToBase64Url(bytes)
 }
@@ -27,7 +29,7 @@ export async function hashToken(token: string): Promise<string> {
  * makes the value safe to embed in a URL path without escaping.
  */
 export function isValidTokenShape(value: string): boolean {
-  if (value.length < 32 || value.length > 128) return false
+  if (value.length < 20 || value.length > 128) return false
   return /^[A-Za-z0-9_-]+$/.test(value)
 }
 
