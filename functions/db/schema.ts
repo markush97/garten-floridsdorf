@@ -36,6 +36,12 @@ export const users = sqliteTable(
     notify_calendar_email: integer('notify_calendar_email', { mode: 'boolean' })
       .notNull()
       .default(false),
+    // Grants the right to accept (approve) uploaded bills in the Kassa
+    // (bookkeeping) module. Admins may approve regardless of this flag;
+    // members need it explicitly. Admin-assignable in the user editor.
+    is_kassier: integer('is_kassier', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     username: text('username'),
     password_hash: text('password_hash'),
     role: text('role', { enum: ['member', 'admin'] })
@@ -574,6 +580,129 @@ export const calendar_feed_tokens = sqliteTable(
   (t) => [uniqueIndex('calendar_feed_tokens_user_unique').on(t.user_id)],
 )
 
+// ---------------------------------------------------------------------------
+// Kassa / bookkeeping: uploaded bills (expenses), the per-bill split shares
+// snapshotted at approval, and the manual Vereinskonto movements (opening
+// balance, income, reimbursements). All amounts are integer euro cents.
+// ---------------------------------------------------------------------------
+
+/**
+ * A single uploaded bill (Rechnung). Any member may create one; it
+ * stays `pending` until a Kassier (or admin) approves or rejects it.
+ * Only `approved` rows affect the ledger. `paid_from` records who
+ * actually paid (the Vereinskonto or a member privately), while
+ * `settlement` records who should bear the cost (the Vereinskassa, or
+ * split equally across all members). The optional receipt scan lives
+ * in R2 under `receipt_r2_key`; the payer/submitter names are
+ * snapshotted so the row survives user deletion (same pattern as
+ * documents and bookings).
+ */
+export const expenses = sqliteTable('expenses', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  description: text('description').notNull(),
+  amount_cents: integer('amount_cents').notNull(),
+  // Vienna wall date (YYYY-MM-DD) the purchase was made.
+  expense_date: text('expense_date').notNull(),
+  type: text('type', {
+    enum: ['expected', 'emergency', 'project'],
+  }).notNull(),
+  category: text('category', {
+    enum: [
+      'huetten',
+      'rasenflaeche',
+      'anbauflaeche',
+      'wildflaeche',
+      'betriebskosten',
+      'sonstiges',
+    ],
+  }).notNull(),
+  cadence: text('cadence', { enum: ['regular', 'one_time'] }).notNull(),
+  // Only meaningful when `type = 'project'`.
+  project_name: text('project_name'),
+  paid_from: text('paid_from', { enum: ['verein', 'member'] }).notNull(),
+  paid_by_user_id: integer('paid_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  paid_by_name: text('paid_by_name'),
+  settlement: text('settlement', { enum: ['verein', 'split'] }).notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+    .notNull()
+    .default('pending'),
+  receipt_r2_key: text('receipt_r2_key').unique(),
+  receipt_filename: text('receipt_filename'),
+  receipt_content_type: text('receipt_content_type'),
+  receipt_size: integer('receipt_size'),
+  submitted_by_user_id: integer('submitted_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  submitted_by_name: text('submitted_by_name').notNull(),
+  reviewed_by_user_id: integer('reviewed_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  reviewed_by_name: text('reviewed_by_name'),
+  reviewed_at: text('reviewed_at'),
+  review_note: text('review_note'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+/**
+ * The split of a `settlement = 'split'` expense across members,
+ * materialized when the bill is approved so the per-member debt is
+ * frozen at that moment — later membership changes must not shift
+ * historical shares. `share_cents` sums back to the expense amount
+ * (the remainder is assigned deterministically). The member name is
+ * snapshotted so the row survives user deletion.
+ */
+export const expense_shares = sqliteTable(
+  'expense_shares',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    expense_id: integer('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    user_id: integer('user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    member_name: text('member_name').notNull(),
+    share_cents: integer('share_cents').notNull(),
+  },
+  (t) => [uniqueIndex('expense_shares_unique').on(t.expense_id, t.user_id)],
+)
+
+/**
+ * Manual Vereinskonto movements that don't originate from a bill:
+ * the opening balance, incoming money (membership fees, donations, a
+ * member paying back their split share), and reimbursements paid out
+ * to a member who fronted money. `amount_cents` is always positive;
+ * the sign of its effect on the balance is derived from `kind`
+ * (opening/income add, reimbursement subtracts). `member_user_id`
+ * attributes the entry to a member for the "who owes whom" view
+ * (required for reimbursements). Only a Kassier/admin records these.
+ */
+export const bank_entries = sqliteTable('bank_entries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  kind: text('kind', {
+    enum: ['opening', 'income', 'reimbursement'],
+  }).notNull(),
+  amount_cents: integer('amount_cents').notNull(),
+  entry_date: text('entry_date').notNull(),
+  description: text('description'),
+  member_user_id: integer('member_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  member_name: text('member_name'),
+  recorded_by_user_id: integer('recorded_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  recorded_by_name: text('recorded_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
 // Inferred row types for query returns and route-handler response
 // shapes. `token_hash` never leaves the server — the admin routes
 // expose a short fingerprint instead.
@@ -584,3 +713,6 @@ export type PollShareTokenRow = typeof poll_share_tokens.$inferSelect
 export type CalendarEventRow = typeof calendar_events.$inferSelect
 export type BookingRow = typeof bookings.$inferSelect
 export type CalendarFeedTokenRow = typeof calendar_feed_tokens.$inferSelect
+export type ExpenseRow = typeof expenses.$inferSelect
+export type ExpenseShareRow = typeof expense_shares.$inferSelect
+export type BankEntryRow = typeof bank_entries.$inferSelect

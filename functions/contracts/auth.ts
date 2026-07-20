@@ -38,6 +38,9 @@ export type SessionUser = {
   user_id: number | null
   name: string
   role: 'member' | 'admin'
+  // Whether this user may accept (approve) bills in the Kassa module.
+  // Always true for admins; members need the `is_kassier` flag.
+  is_kassier: boolean
 }
 
 /** Public preview of a pending invite (`GET /auth/invite/:token`). */

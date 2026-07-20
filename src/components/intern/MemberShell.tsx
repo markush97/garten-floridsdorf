@@ -12,13 +12,14 @@ type MemberShellProps = {
 }
 
 type MemberNavItem = {
-  to: '/intern' | '/intern/termine'
+  to: '/intern' | '/intern/termine' | '/intern/kassa'
   label: string
 }
 
 const MEMBER_NAV_ITEMS: readonly MemberNavItem[] = [
   { to: '/intern', label: 'Dokumente' },
   { to: '/intern/termine', label: 'Termine' },
+  { to: '/intern/kassa', label: 'Kassa' },
 ] as const
 
 /** Page chrome for the members-only area ("Interner Bereich"). */

@@ -72,6 +72,7 @@ type FormPayload = {
   phone: string
   description: string
   role?: 'member' | 'admin'
+  is_kassier?: boolean
 }
 
 type NewUserFormProps = {
@@ -192,6 +193,7 @@ function ExistingUserFormBody({
   const [phone, setPhone] = useState(user.phone ?? '')
   const [description, setDescription] = useState(user.description ?? '')
   const [role, setRole] = useState<'member' | 'admin'>(user.role)
+  const [isKassier, setIsKassier] = useState(user.is_kassier)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -206,6 +208,7 @@ function ExistingUserFormBody({
       phone: phone.trim(),
       description: description.trim(),
       role,
+      is_kassier: isKassier,
     })
   }
 
@@ -242,6 +245,25 @@ function ExistingUserFormBody({
             <p className="text-xs text-forest-700/60">
               Admins verwalten Terminabstimmungen, Termine und Benutzer.
               Mitglieder sehen den internen Bereich mit den Dokumenten.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label
+              className="flex items-start gap-2.5 text-sm text-forest-900"
+              htmlFor="user-kassier"
+            >
+              <input
+                checked={isKassier}
+                className="mt-0.5 size-4 accent-forest-700"
+                id="user-kassier"
+                onChange={(e) => setIsKassier(e.target.checked)}
+                type="checkbox"
+              />
+              <span>Kassier:in (darf Rechnungen freigeben)</span>
+            </label>
+            <p className="text-xs text-forest-700/60">
+              Kassier:innen geben hochgeladene Rechnungen frei und verwalten
+              Einnahmen und Rückzahlungen. Admins dürfen das immer.
             </p>
           </div>
           <InviteSection user={user} />

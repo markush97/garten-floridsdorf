@@ -23,6 +23,7 @@ export const publicUserColumns = {
   description: users.description,
   username: users.username,
   role: users.role,
+  is_kassier: users.is_kassier,
   activated_at: users.activated_at,
   created_at: users.created_at,
   updated_at: users.updated_at,
@@ -81,6 +82,7 @@ export async function createUser(db: Database, input: CreateUserInput) {
       phone: normalizeOptional(input.phone),
       description: normalizeOptional(input.description),
       role: input.role ?? 'member',
+      is_kassier: input.is_kassier ?? false,
       created_at: now,
       updated_at: now,
     })
@@ -121,6 +123,9 @@ export async function updateUser(
   }
   if (input.role !== undefined) {
     updates.role = input.role
+  }
+  if (input.is_kassier !== undefined) {
+    updates.is_kassier = input.is_kassier
   }
 
   // The slug intentionally stays stable on rename — regenerating it

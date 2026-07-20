@@ -36,6 +36,13 @@ import {
   type SessionUser,
 } from '../functions/contracts/auth'
 import {
+  createBankEntryInputSchema,
+  createExpenseInputSchema,
+  rejectExpenseInputSchema,
+  updateBankEntryInputSchema,
+  updateExpenseInputSchema,
+} from '../functions/contracts/bookkeeping'
+import {
   type CalendarBookingEntry,
   type CalendarEntry,
   type CalendarEventEntry,
@@ -104,6 +111,23 @@ import {
   findBookingOrThrow,
   updateBooking,
 } from '../functions/db/queries/bookings'
+import {
+  approveExpense,
+  canApproveExpenses,
+  createBankEntry,
+  createExpense,
+  deleteBankEntry,
+  deleteExpense,
+  findExpenseOrThrow,
+  getKassaOverview,
+  listBankEntries,
+  listExpenses,
+  listMembers,
+  rejectExpense,
+  setExpenseReceipt,
+  updateBankEntry,
+  updateExpense,
+} from '../functions/db/queries/bookkeeping'
 import { getMergedCalendar } from '../functions/db/queries/calendar'
 import {
   createCalendarEvent,
@@ -211,6 +235,7 @@ import {
   type BookingRow,
   type CalendarEventRow,
   type DocumentShareTokenRow,
+  type ExpenseRow,
   ip_vote_counts,
 } from '../functions/db/schema'
 
@@ -235,8 +260,18 @@ function clientIp(c: Context<AppEnv>): string {
   )
 }
 
-function sessionUser(session: Session): SessionUser {
-  return { user_id: session.userId, name: session.name, role: session.role }
+async function sessionUser(
+  db: ReturnType<typeof createDb>,
+  session: Session,
+): Promise<SessionUser> {
+  return {
+    user_id: session.userId,
+    name: session.name,
+    role: session.role,
+    // The bill-approval capability, read fresh from the DB so a
+    // just-granted Kassier flag isn't stale until the next login.
+    is_kassier: await canApproveExpenses(db, session),
+  }
 }
 
 const app = new Hono<AppEnv>().basePath('/api')
@@ -380,7 +415,7 @@ async function startSession(
   session: Session,
 ): Promise<SessionUser> {
   setSessionCookie(c, await signSessionToken(c.env.JWT_SECRET, session))
-  return sessionUser(session)
+  return sessionUser(createDb(c.env.DB), session)
 }
 
 app.post('/auth/login', async (c) => {
@@ -494,7 +529,7 @@ app.get('/auth/me', async (c) => {
   if (!session) {
     return c.json(makeError('UNAUTHORIZED', 'Nicht angemeldet'), 401)
   }
-  return c.json(sessionUser(session))
+  return c.json(await sessionUser(createDb(c.env.DB), session))
 })
 
 /** Preview of a pending invite, for the greeting on the accept page. */
@@ -1441,6 +1476,276 @@ app.get('/ics/:token', async (c) => {
       'Content-Disposition': 'inline; filename="garten-kalender.ics"',
     },
   })
+})
+
+// ── Bookkeeping / Kassa ─────────────────────────────────────────────────────
+
+/** Throws 403 unless the session may accept bills (Kassier or admin). */
+async function assertCanApprove(
+  c: Context<AppEnv>,
+  db: ReturnType<typeof createDb>,
+): Promise<void> {
+  if (!(await canApproveExpenses(db, c.get('session')))) {
+    throw new AppError(
+      'FORBIDDEN',
+      'Nur Kassier:innen dürfen Rechnungen freigeben.',
+      403,
+    )
+  }
+}
+
+/** A member may manage their own bill while it is pending; Kassiere any. */
+async function canManageExpense(
+  db: ReturnType<typeof createDb>,
+  session: Session,
+  expense: ExpenseRow,
+): Promise<boolean> {
+  if (await canApproveExpenses(db, session)) return true
+  return (
+    expense.status === 'pending' &&
+    expense.submitted_by_user_id !== null &&
+    expense.submitted_by_user_id === session.userId
+  )
+}
+
+app.get('/kassa/overview', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await getKassaOverview(db))
+})
+
+app.get('/kassa/members', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listMembers(db))
+})
+
+app.get('/kassa/expenses', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listExpenses(db))
+})
+
+app.post('/kassa/expenses', requireAuth, async (c) => {
+  const parsed = createExpenseInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const row = await createExpense(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  return c.json(row, 201)
+})
+
+app.patch('/kassa/expenses/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateExpenseInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findExpenseOrThrow(db, id)
+  if (!(await canManageExpense(db, session, existing))) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  return c.json(await updateExpense(db, id, parsed.data))
+})
+
+app.delete('/kassa/expenses/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findExpenseOrThrow(db, id)
+  if (!(await canManageExpense(db, session, existing))) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteExpense(db, c.env.ATTACHMENTS, id)
+  return c.json({ ok: true })
+})
+
+app.post('/kassa/expenses/:id/receipt', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findExpenseOrThrow(db, id)
+  if (!(await canManageExpense(db, session, existing))) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File)) {
+    return c.json(
+      makeError('VALIDATION_ERROR', 'Datei fehlt (Feld „file“).'),
+      400,
+    )
+  }
+  if (!isAllowedDocumentContentType(file.type)) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Dateityp nicht erlaubt. Erlaubt: PDF, Bilder, Office- und Textdateien.',
+      ),
+      400,
+    )
+  }
+  if (file.size <= 0 || file.size > MAX_DOCUMENT_SIZE_BYTES) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        `Datei zu groß (max ${Math.round(MAX_DOCUMENT_SIZE_BYTES / 1024 / 1024)} MB).`,
+      ),
+      400,
+    )
+  }
+  const safeName = safeFilename(file.name)
+  const key = `expenses/${id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`
+  await c.env.ATTACHMENTS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  })
+  const row = await setExpenseReceipt(db, c.env.ATTACHMENTS, id, {
+    r2_key: key,
+    filename: safeName,
+    content_type: file.type,
+    size: file.size,
+  })
+  return c.json(row)
+})
+
+app.get('/kassa/expenses/:id/receipt', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const row = await findExpenseOrThrow(db, id)
+  if (
+    !row.receipt_r2_key ||
+    !row.receipt_filename ||
+    !row.receipt_content_type ||
+    row.receipt_size === null
+  ) {
+    return c.json(makeError('NOT_FOUND', 'Kein Beleg hinterlegt.'), 404)
+  }
+  const object = await c.env.ATTACHMENTS.get(row.receipt_r2_key)
+  if (!object) {
+    return c.json(
+      makeError('NOT_FOUND', 'Datei nicht im Speicher gefunden.'),
+      404,
+    )
+  }
+  return new Response(object.body, {
+    headers: buildDownloadHeaders({
+      filename: row.receipt_filename,
+      content_type: row.receipt_content_type,
+      size: row.receipt_size,
+    }),
+  })
+})
+
+app.post('/kassa/expenses/:id/approve', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  const session = c.get('session')
+  return c.json(
+    await approveExpense(db, id, { id: session.userId, name: session.name }),
+  )
+})
+
+app.post('/kassa/expenses/:id/reject', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = rejectExpenseInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  const session = c.get('session')
+  return c.json(
+    await rejectExpense(
+      db,
+      id,
+      { id: session.userId, name: session.name },
+      parsed.data.note ?? null,
+    ),
+  )
+})
+
+app.get('/kassa/bank-entries', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  return c.json(await listBankEntries(db))
+})
+
+app.post('/kassa/bank-entries', requireAuth, async (c) => {
+  const parsed = createBankEntryInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  const session = c.get('session')
+  const row = await createBankEntry(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  return c.json(row, 201)
+})
+
+app.patch('/kassa/bank-entries/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateBankEntryInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  return c.json(await updateBankEntry(db, id, parsed.data))
+})
+
+app.delete('/kassa/bank-entries/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  await assertCanApprove(c, db)
+  await deleteBankEntry(db, id)
+  return c.json({ ok: true })
 })
 
 app.use('/admin/*', requireAdmin)

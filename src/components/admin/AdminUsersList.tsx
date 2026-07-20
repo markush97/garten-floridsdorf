@@ -112,6 +112,14 @@ function AdminUsersList() {
                             Admin
                           </Badge>
                         )}
+                        {user.is_kassier && (
+                          <Badge
+                            className="bg-wood-600/12 text-wood-600 ring-1 ring-inset ring-wood-600/25"
+                            variant="outline"
+                          >
+                            Kassier
+                          </Badge>
+                        )}
                         {user.activated_at ? (
                           <Badge
                             className="bg-leaf-500/15 text-forest-700 ring-1 ring-inset ring-leaf-500/30"

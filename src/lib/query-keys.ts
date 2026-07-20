@@ -43,4 +43,11 @@ export const queryKeys = {
     me: ['profile', 'me'] as const,
     calendarToken: ['profile', 'calendar-token'] as const,
   },
+  kassa: {
+    all: ['kassa'] as const,
+    overview: ['kassa', 'overview'] as const,
+    expenses: ['kassa', 'expenses'] as const,
+    members: ['kassa', 'members'] as const,
+    bankEntries: ['kassa', 'bank-entries'] as const,
+  },
 }

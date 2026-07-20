@@ -28,6 +28,7 @@ describe('userSchema', () => {
       description: null,
       username: null,
       role: 'member',
+      is_kassier: false,
       activated_at: null,
       created_at: '2026-06-10T10:00:00.000Z',
       updated_at: '2026-06-10T10:00:00.000Z',

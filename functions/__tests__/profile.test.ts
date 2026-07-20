@@ -17,6 +17,7 @@ describe('myProfileSchema', () => {
       description: null,
       username: 'maria',
       role: 'member',
+      is_kassier: false,
       activated_at: '2026-06-10T10:00:00.000Z',
       created_at: '2026-06-10T10:00:00.000Z',
       updated_at: '2026-06-10T10:00:00.000Z',

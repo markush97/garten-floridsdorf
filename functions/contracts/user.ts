@@ -40,6 +40,7 @@ export const userSchema = z.object({
   description: z.string().nullable(),
   username: z.string().nullable(),
   role: z.enum(['member', 'admin']),
+  is_kassier: z.boolean(),
   activated_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -52,6 +53,7 @@ export const createUserInputSchema = z.object({
   phone: optionalContactString,
   description: optionalDescription,
   role: z.enum(['member', 'admin']).optional(),
+  is_kassier: z.boolean().optional(),
 })
 
 export const updateUserInputSchema = createUserInputSchema.partial()
