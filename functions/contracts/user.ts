@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { usernameSchema } from './auth'
 
 // Optional, lightly validated contact fields. Empty strings (and pure
 // whitespace) are normalized to `null` so consumers don't have to guess.
@@ -55,6 +56,50 @@ export const createUserInputSchema = z.object({
 
 export const updateUserInputSchema = createUserInputSchema.partial()
 
+// ── Profile self-service (`/api/me/*`) ─────────────────────────────────────
+
+const optionalEmail = z
+  .preprocess(
+    (v) => (v == null ? '' : v),
+    z
+      .string()
+      .max(200)
+      .transform((v) => v.trim().toLowerCase())
+      .transform((v) => (v.length === 0 ? null : v))
+      .refine((v) => v === null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+        message: 'Ungültige E-Mail-Adresse.',
+      }),
+  )
+  .nullish()
+
+/** What a member sees and edits about themselves. */
+export const myProfileSchema = userSchema.extend({
+  address: z.string().nullable(),
+  notify_calendar_email: z.boolean(),
+})
+
+export const updateMyProfileInputSchema = z.object({
+  first_name: z.string().trim().min(1).max(100).optional(),
+  last_name: z.string().trim().min(1).max(100).optional(),
+  username: usernameSchema.optional(),
+  email: optionalEmail,
+  phone: optionalContactString,
+  address: optionalContactString,
+  description: optionalDescription,
+  notify_calendar_email: z.boolean().optional(),
+})
+
+export const changePasswordInputSchema = z.object({
+  current_password: z
+    .string()
+    .min(1, 'Bitte das aktuelle Passwort eingeben.')
+    .max(200),
+  new_password: z.string().min(8, 'Passwort: mindestens 8 Zeichen').max(200),
+})
+
 export type User = z.infer<typeof userSchema>
 export type CreateUserInput = z.infer<typeof createUserInputSchema>
 export type UpdateUserInput = z.infer<typeof updateUserInputSchema>
+export type MyProfile = z.infer<typeof myProfileSchema>
+export type UpdateMyProfileInput = z.infer<typeof updateMyProfileInputSchema>
+export type ChangePasswordInput = z.infer<typeof changePasswordInputSchema>

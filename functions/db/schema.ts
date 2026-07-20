@@ -29,7 +29,13 @@ export const users = sqliteTable(
     last_name: text('last_name').notNull(),
     email: text('email'),
     phone: text('phone'),
+    address: text('address'),
     description: text('description'),
+    // Opt-in for e-mail notifications about calendar changes
+    // (Vereinstermine, Mitglieder-Einträge, Reservierungen).
+    notify_calendar_email: integer('notify_calendar_email', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     username: text('username'),
     password_hash: text('password_hash'),
     role: text('role', { enum: ['member', 'admin'] })
@@ -489,6 +495,85 @@ export const poll_share_views = sqliteTable('poll_share_views', {
   viewed_at: text('viewed_at').notNull(),
 })
 
+// ---------------------------------------------------------------------------
+// Calendar: member-created entries and exclusive property reservations,
+// shown together with the admin-managed Vereinstermine (`events`) in the
+// member calendar and the personal iCal feed.
+// ---------------------------------------------------------------------------
+
+/**
+ * A member-created calendar entry — distinct from the admin-managed
+ * `events` (Vereinstermine). Dates/times are Vienna wall time in the
+ * app's text conventions (YYYY-MM-DD / HH:mm). `end_date = null`
+ * means single-day, `start_time = null` means all-day. The creator
+ * name is snapshotted so entries survive user deletion (same pattern
+ * as documents).
+ */
+export const calendar_events = sqliteTable('calendar_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  description: text('description'),
+  location: text('location'),
+  start_date: text('start_date').notNull(),
+  end_date: text('end_date'),
+  start_time: text('start_time'),
+  end_time: text('end_time'),
+  created_by_user_id: integer('created_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  created_by_name: text('created_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+/**
+ * An exclusive overnight reservation of the property. `start_at` /
+ * `end_at` are normalized ISO-UTC instants (always written via dayjs
+ * `.toISOString()`), so lexicographic comparison in SQL is a correct
+ * instant comparison. Vienna wall times are derived via
+ * `_lib/booking.ts` — never stored. `billed_days` is computed
+ * server-side on every write (day count per Vereinsstatuten; no
+ * money amounts in the app). Cancel is soft (`status` +
+ * `cancelled_at`) so notifications and audit keep working.
+ */
+export const bookings = sqliteTable('bookings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  user_id: integer('user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  user_name: text('user_name').notNull(),
+  start_at: text('start_at').notNull(),
+  end_at: text('end_at').notNull(),
+  billed_days: integer('billed_days').notNull(),
+  note: text('note'),
+  status: text('status', { enum: ['confirmed', 'cancelled'] })
+    .notNull()
+    .default('confirmed'),
+  cancelled_at: text('cancelled_at'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+/**
+ * Personal iCal feed token — exactly one active row per user (unique
+ * index). Mirrors the share-token pattern: only the SHA-256 hash is
+ * stored, the plaintext lives solely in the feed URL. Rotate =
+ * delete + insert; revoke = delete.
+ */
+export const calendar_feed_tokens = sqliteTable(
+  'calendar_feed_tokens',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    user_id: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token_hash: text('token_hash').notNull().unique(),
+    created_at: text('created_at').notNull(),
+    last_used_at: text('last_used_at'),
+  },
+  (t) => [uniqueIndex('calendar_feed_tokens_user_unique').on(t.user_id)],
+)
+
 // Inferred row types for query returns and route-handler response
 // shapes. `token_hash` never leaves the server — the admin routes
 // expose a short fingerprint instead.
@@ -496,3 +581,6 @@ export type EventShareTokenRow = typeof event_share_tokens.$inferSelect
 export type EventShareViewRow = typeof event_share_views.$inferSelect
 export type DocumentShareTokenRow = typeof document_share_tokens.$inferSelect
 export type PollShareTokenRow = typeof poll_share_tokens.$inferSelect
+export type CalendarEventRow = typeof calendar_events.$inferSelect
+export type BookingRow = typeof bookings.$inferSelect
+export type CalendarFeedTokenRow = typeof calendar_feed_tokens.$inferSelect

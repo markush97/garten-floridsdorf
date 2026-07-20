@@ -64,6 +64,97 @@ export function buildEventIcal(
 }
 
 /**
+ * One VEVENT of the personal calendar feed, in Vienna wall time.
+ * `startTime = null` means all-day; for all-day entries `endDate` is
+ * the *inclusive* last day (the builder emits the exclusive DTEND).
+ */
+export type FeedEntry = {
+  uid: string
+  summary: string
+  description?: string | null
+  location?: string | null
+  url?: string | null
+  /** ISO-UTC timestamp (typically the row's `updated_at`) — a stable
+   * DTSTAMP keeps subscription clients from re-syncing unchanged
+   * entries. */
+  dtstampUtc: string
+  startDate: string // YYYY-MM-DD
+  startTime?: string | null // HH:mm
+  endDate: string // YYYY-MM-DD
+  endTime?: string | null // HH:mm; required when startTime is set
+}
+
+/**
+ * Generates the multi-VEVENT iCalendar document for the personal
+ * subscription feed. Same conventions as `buildEventIcal`: floating
+ * Vienna wall times with `TZID`, `VALUE=DATE` with exclusive DTEND
+ * for all-day entries, CRLF + 75-octet folding.
+ */
+export function buildCalendarFeed(
+  entries: FeedEntry[],
+  options: { prodId?: string; calendarName?: string } = {},
+): string {
+  const prodId = options.prodId ?? '-//SV Beet & Bewegung//Kalender//DE'
+  const calendarName = options.calendarName ?? 'Garten Floridsdorf'
+
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    `PRODID:${prodId}`,
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${escapeText(calendarName)}`,
+    `X-WR-TIMEZONE:${escapeText(DEFAULT_TIMEZONE)}`,
+  ]
+  for (const entry of entries) {
+    lines.push(...formatVeventLines(entry))
+  }
+  lines.push('END:VCALENDAR')
+
+  return `${lines.map(foldLine).join('\r\n')}\r\n`
+}
+
+function formatVeventLines(entry: FeedEntry): string[] {
+  const lines: string[] = [
+    'BEGIN:VEVENT',
+    `UID:${escapeText(entry.uid)}`,
+    `DTSTAMP:${formatUtcStamp(new Date(entry.dtstampUtc))}`,
+  ]
+
+  const startCompact = entry.startDate.replace(/-/g, '')
+  if (entry.startTime) {
+    const endTime = entry.endTime ?? addMinutes(entry.startTime, 60)
+    const endCompact = entry.endDate.replace(/-/g, '')
+    lines.push(
+      `DTSTART;TZID=${DEFAULT_TIMEZONE}:${startCompact}T${entry.startTime.replace(':', '')}00`,
+      `DTEND;TZID=${DEFAULT_TIMEZONE}:${endCompact}T${endTime.replace(':', '')}00`,
+    )
+  } else {
+    // All-day: DTEND is exclusive, so we add one day past the
+    // inclusive last day.
+    lines.push(
+      `DTSTART;VALUE=DATE:${startCompact}`,
+      `DTEND;VALUE=DATE:${addDays(entry.endDate, 1).replace(/-/g, '')}`,
+    )
+  }
+
+  lines.push(`SUMMARY:${escapeText(entry.summary)}`)
+  if (entry.location?.trim()) {
+    lines.push(`LOCATION:${escapeText(entry.location)}`)
+  }
+  if (entry.description?.trim()) {
+    lines.push(`DESCRIPTION:${escapeText(entry.description)}`)
+  }
+  if (entry.url) {
+    lines.push(`URL:${escapeText(entry.url)}`)
+  }
+  lines.push('STATUS:CONFIRMED')
+  lines.push('TRANSP:OPAQUE')
+  lines.push('END:VEVENT')
+  return lines
+}
+
+/**
  * Escapes a text value per RFC 5545 §3.3.11: backslash, semicolon,
  * comma, and newlines. The escape order matters — backslashes
  * first, then the others.

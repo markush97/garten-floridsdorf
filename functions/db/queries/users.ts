@@ -1,10 +1,15 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNotNull } from 'drizzle-orm'
 import { nowUtc } from '../../_lib/dayjs'
 import type { Database } from '../../_lib/db'
 import { AppError } from '../../_lib/errors'
 import { generateSlug } from '../../_lib/slug'
-import type { CreateUserInput, UpdateUserInput } from '../../contracts/user'
+import type {
+  CreateUserInput,
+  UpdateMyProfileInput,
+  UpdateUserInput,
+} from '../../contracts/user'
 import { users } from '../schema'
+import { findUserByUsername } from './auth'
 
 // Everything except `password_hash` — this is what API responses may
 // contain. Keep in sync with `userSchema` in contracts/user.ts.
@@ -127,4 +132,119 @@ export async function updateUser(
 export async function deleteUser(db: Database, id: number) {
   await findUserByIdOrThrow(db, id)
   await db.delete(users).where(eq(users.id, id))
+}
+
+// ── Profile self-service (`/api/me/*`) ─────────────────────────────────────
+
+// What a member sees about themselves — the public columns plus the
+// self-service-only fields. Keep in sync with `myProfileSchema`.
+const profileColumns = {
+  ...publicUserColumns,
+  address: users.address,
+  notify_calendar_email: users.notify_calendar_email,
+}
+
+export async function getProfileOrThrow(db: Database, userId: number) {
+  const profile = await db
+    .select(profileColumns)
+    .from(users)
+    .where(eq(users.id, userId))
+    .get()
+  if (!profile) {
+    throw new AppError('NOT_FOUND', 'Benutzer nicht gefunden', 404)
+  }
+  return profile
+}
+
+export async function updateProfile(
+  db: Database,
+  userId: number,
+  input: UpdateMyProfileInput,
+) {
+  await getProfileOrThrow(db, userId)
+  if (input.username !== undefined) {
+    const taken = await findUserByUsername(db, input.username)
+    if (taken && taken.id !== userId) {
+      throw new AppError('CONFLICT', 'Benutzername ist bereits vergeben', 409)
+    }
+  }
+  const updates: Partial<typeof users.$inferInsert> = { updated_at: nowUtc() }
+  if (input.first_name !== undefined) {
+    updates.first_name = input.first_name.trim()
+  }
+  if (input.last_name !== undefined) {
+    updates.last_name = input.last_name.trim()
+  }
+  if (input.username !== undefined) {
+    updates.username = input.username
+  }
+  // No uniqueness check for e-mail: the column has no unique index
+  // and the magic-link flow tolerates duplicates by design.
+  if (input.email !== undefined) {
+    updates.email = normalizeOptional(input.email)
+  }
+  if (input.phone !== undefined) {
+    updates.phone = normalizeOptional(input.phone)
+  }
+  if (input.address !== undefined) {
+    updates.address = normalizeOptional(input.address)
+  }
+  if (input.description !== undefined) {
+    updates.description = normalizeOptional(input.description)
+  }
+  if (input.notify_calendar_email !== undefined) {
+    updates.notify_calendar_email = input.notify_calendar_email
+  }
+  await db.update(users).set(updates).where(eq(users.id, userId))
+  return getProfileOrThrow(db, userId)
+}
+
+export async function findUserCredentials(
+  db: Database,
+  userId: number,
+): Promise<{ id: number; password_hash: string | null } | undefined> {
+  return db
+    .select({ id: users.id, password_hash: users.password_hash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get()
+}
+
+export async function updatePassword(
+  db: Database,
+  userId: number,
+  passwordHash: string,
+): Promise<void> {
+  await db
+    .update(users)
+    .set({ password_hash: passwordHash, updated_at: nowUtc() })
+    .where(eq(users.id, userId))
+}
+
+/**
+ * Recipients for calendar-change notification mails: opted in,
+ * activated, with an e-mail address — excluding the acting user so
+ * nobody is notified about their own change.
+ */
+export async function listCalendarNotificationRecipients(
+  db: Database,
+  excludeUserId: number | null,
+): Promise<{ email: string }[]> {
+  const rows = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(
+      and(
+        eq(users.notify_calendar_email, true),
+        isNotNull(users.activated_at),
+        isNotNull(users.email),
+      ),
+    )
+    .all()
+  return rows
+    .filter(
+      (row): row is { id: number; email: string } =>
+        row.email !== null && row.id !== excludeUserId,
+    )
+    .map((row) => ({ email: row.email }))
 }

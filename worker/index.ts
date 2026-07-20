@@ -10,10 +10,23 @@ import {
   setSessionCookie,
   signSessionToken,
 } from '../functions/_lib/auth'
+import { utcToBookingPeriod } from '../functions/_lib/booking'
+import { feedEntriesFromCalendar } from '../functions/_lib/calendar-feed'
+import {
+  formatBookingWhen,
+  formatEventWhen,
+  formatTerminWhen,
+  notifyCalendarChange,
+} from '../functions/_lib/calendar-notifications'
+import { dayjs, nowUtc, toVienna } from '../functions/_lib/dayjs'
 import { createDb } from '../functions/_lib/db'
 import { sendMagicLinkEmail } from '../functions/_lib/email'
 import { AppError, makeError, zodErrorMessage } from '../functions/_lib/errors'
-import { buildEventIcal, ICAL_CONTENT_TYPE } from '../functions/_lib/ical'
+import {
+  buildCalendarFeed,
+  buildEventIcal,
+  ICAL_CONTENT_TYPE,
+} from '../functions/_lib/ical'
 import { hashPassword, verifyPassword } from '../functions/_lib/password'
 import { hashToken, isValidTokenShape } from '../functions/_lib/token'
 import {
@@ -22,6 +35,18 @@ import {
   magicLinkRequestInputSchema,
   type SessionUser,
 } from '../functions/contracts/auth'
+import {
+  type CalendarBookingEntry,
+  type CalendarEntry,
+  type CalendarEventEntry,
+  type CalendarFeedTokenStatus,
+  type CalendarTerminEntry,
+  type CreateCalendarFeedTokenResponse,
+  createBookingInputSchema,
+  createCalendarEventInputSchema,
+  updateBookingInputSchema,
+  updateCalendarEventInputSchema,
+} from '../functions/contracts/calendar'
 import {
   createDocumentShareTokenInputSchema,
   createFolderInputSchema,
@@ -59,7 +84,9 @@ import {
   submitVotesInputSchema,
 } from '../functions/contracts/poll'
 import {
+  changePasswordInputSchema,
   createUserInputSchema,
+  updateMyProfileInputSchema,
   updateUserInputSchema,
 } from '../functions/contracts/user'
 import {
@@ -71,6 +98,25 @@ import {
   findUserByUsername,
   resolveAuthToken,
 } from '../functions/db/queries/auth'
+import {
+  cancelBooking,
+  createBooking,
+  findBookingOrThrow,
+  updateBooking,
+} from '../functions/db/queries/bookings'
+import { getMergedCalendar } from '../functions/db/queries/calendar'
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+  findCalendarEventOrThrow,
+  updateCalendarEvent,
+} from '../functions/db/queries/calendar-events'
+import {
+  getFeedToken,
+  resolveFeedToken,
+  revokeFeedToken,
+  rotateFeedToken,
+} from '../functions/db/queries/calendar-feed-tokens'
 import {
   createDocumentShareToken,
   isDocumentShareTokenActive,
@@ -154,10 +200,16 @@ import {
   createUser,
   deleteUser,
   findUserBySlugOrThrow,
+  findUserCredentials,
+  getProfileOrThrow,
   listAllUsers,
+  updatePassword,
+  updateProfile,
   updateUser,
 } from '../functions/db/queries/users'
 import {
+  type BookingRow,
+  type CalendarEventRow,
   type DocumentShareTokenRow,
   ip_vote_counts,
 } from '../functions/db/schema'
@@ -168,7 +220,8 @@ type AppEnv = {
     ADMIN_PASSWORD?: string
     JWT_SECRET: string
     ATTACHMENTS: R2Bucket
-    RESEND_API_KEY?: string
+    SMTP_RELAY_URL?: string
+    SMTP_RELAY_TOKEN?: string
     EMAIL_FROM?: string
   }
   Variables: AuthVariables
@@ -908,6 +961,488 @@ app.get('/events/:slug', requireAuth, async (c) => {
   return c.json(await findEventWithDetails(db, event.id))
 })
 
+// ── Calendar (all signed-in members) ────────────────────────────────────────
+
+const ISO_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
+
+function requestOrigin(c: Context<AppEnv>): string {
+  return new URL(c.req.url).origin
+}
+
+function shapeTerminEntry(termin: {
+  id: number
+  slug: string
+  title: string
+  scheduled_date: string
+  scheduled_time: string | null
+  location: string | null
+}): CalendarTerminEntry {
+  return {
+    kind: 'termin',
+    id: termin.id,
+    slug: termin.slug,
+    title: termin.title,
+    date: termin.scheduled_date,
+    time: termin.scheduled_time,
+    location: termin.location,
+  }
+}
+
+function shapeCalendarEventEntry(row: CalendarEventRow): CalendarEventEntry {
+  return {
+    kind: 'event',
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    location: row.location,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    start_time: row.start_time,
+    end_time: row.end_time,
+    created_by_user_id: row.created_by_user_id,
+    created_by_name: row.created_by_name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function shapeBookingEntry(row: BookingRow): CalendarBookingEntry {
+  const period = utcToBookingPeriod(row.start_at, row.end_at)
+  return {
+    kind: 'booking',
+    id: row.id,
+    user_id: row.user_id,
+    user_name: row.user_name,
+    start_at: row.start_at,
+    end_at: row.end_at,
+    start_date: period.start_date,
+    start_time: period.start_time,
+    end_date: period.end_date,
+    end_time: period.end_time,
+    billed_days: row.billed_days,
+    note: row.note,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function calendarEntrySortKey(entry: CalendarEntry): string {
+  switch (entry.kind) {
+    case 'termin':
+      return `${entry.date}T${entry.time ?? '00:00'}`
+    case 'event':
+      return `${entry.start_date}T${entry.start_time ?? '00:00'}`
+    case 'booking':
+      return `${entry.start_date}T${entry.start_time}`
+  }
+}
+
+app.get('/calendar', requireAuth, async (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  if (
+    !from ||
+    !to ||
+    !ISO_DATE_SHAPE.test(from) ||
+    !ISO_DATE_SHAPE.test(to) ||
+    from > to
+  ) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültiger Zeitraum'), 400)
+  }
+  if (dayjs.utc(to).diff(dayjs.utc(from), 'day') > 400) {
+    return c.json(makeError('VALIDATION_ERROR', 'Zeitraum zu groß'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const merged = await getMergedCalendar(db, { from, to })
+  const entries: CalendarEntry[] = [
+    ...merged.termine.map(shapeTerminEntry),
+    ...merged.events.map(shapeCalendarEventEntry),
+    ...merged.bookings.map(shapeBookingEntry),
+  ]
+  entries.sort((a, b) =>
+    calendarEntrySortKey(a).localeCompare(calendarEntrySortKey(b)),
+  )
+  return c.json({ from, to, entries })
+})
+
+app.post('/calendar/events', requireAuth, async (c) => {
+  const session = c.get('session')
+  const body = await c.req.json()
+  const parsed = createCalendarEventInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const row = await createCalendarEvent(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'created',
+        kind: 'event',
+        title: row.title,
+        whenText: formatEventWhen(row),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
+  return c.json(shapeCalendarEventEntry(row), 201)
+})
+
+app.patch('/calendar/events/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const session = c.get('session')
+  const body = await c.req.json()
+  const parsed = updateCalendarEventInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const before = await findCalendarEventOrThrow(db, id)
+  if (!canManageDocumentTarget(session, before.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  const row = await updateCalendarEvent(db, id, parsed.data)
+  const periodChanged =
+    row.start_date !== before.start_date ||
+    row.end_date !== before.end_date ||
+    row.start_time !== before.start_time ||
+    row.end_time !== before.end_time
+  if (periodChanged) {
+    c.executionCtx.waitUntil(
+      notifyCalendarChange(
+        db,
+        c.env,
+        {
+          change: 'rescheduled',
+          kind: 'event',
+          title: row.title,
+          whenText: formatEventWhen(row),
+          actorName: session.name,
+        },
+        { actorUserId: session.userId, origin: requestOrigin(c) },
+      ),
+    )
+  }
+  return c.json(shapeCalendarEventEntry(row))
+})
+
+app.delete('/calendar/events/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const session = c.get('session')
+  const db = createDb(c.env.DB)
+  const before = await findCalendarEventOrThrow(db, id)
+  if (!canManageDocumentTarget(session, before.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteCalendarEvent(db, id)
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'cancelled',
+        kind: 'event',
+        title: before.title,
+        whenText: formatEventWhen(before),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
+  return c.json({ ok: true })
+})
+
+app.post('/calendar/bookings', requireAuth, async (c) => {
+  const session = c.get('session')
+  const body = await c.req.json()
+  const parsed = createBookingInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const { note, ...period } = parsed.data
+  const row = await createBooking(
+    db,
+    period,
+    note,
+    { id: session.userId, name: session.name },
+    nowUtc(),
+  )
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'created',
+        kind: 'booking',
+        title: row.user_name,
+        whenText: formatBookingWhen(row.start_at, row.end_at),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
+  return c.json(shapeBookingEntry(row), 201)
+})
+
+app.patch('/calendar/bookings/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const session = c.get('session')
+  const body = await c.req.json()
+  const parsed = updateBookingInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const before = await findBookingOrThrow(db, id)
+  if (!canManageDocumentTarget(session, before.user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  if (session.role !== 'admin' && before.start_at <= nowUtc()) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Vergangene oder laufende Reservierungen können nicht geändert werden.',
+      ),
+      400,
+    )
+  }
+  const row = await updateBooking(db, id, parsed.data, nowUtc())
+  const periodChanged =
+    row.start_at !== before.start_at || row.end_at !== before.end_at
+  if (periodChanged) {
+    c.executionCtx.waitUntil(
+      notifyCalendarChange(
+        db,
+        c.env,
+        {
+          change: 'rescheduled',
+          kind: 'booking',
+          title: row.user_name,
+          whenText: formatBookingWhen(row.start_at, row.end_at),
+          actorName: session.name,
+        },
+        { actorUserId: session.userId, origin: requestOrigin(c) },
+      ),
+    )
+  }
+  return c.json(shapeBookingEntry(row))
+})
+
+app.post('/calendar/bookings/:id/cancel', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const session = c.get('session')
+  const db = createDb(c.env.DB)
+  const before = await findBookingOrThrow(db, id)
+  if (!canManageDocumentTarget(session, before.user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  if (session.role !== 'admin' && before.start_at <= nowUtc()) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Vergangene oder laufende Reservierungen können nicht storniert werden.',
+      ),
+      400,
+    )
+  }
+  const row = await cancelBooking(db, id)
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'cancelled',
+        kind: 'booking',
+        title: row.user_name,
+        whenText: formatBookingWhen(row.start_at, row.end_at),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
+  return c.json(shapeBookingEntry(row))
+})
+
+// ── Profile self-service & personal iCal feed token (`/me/*`) ──────────────
+
+/** `/me/*` routes act on a users row; the bootstrap root admin has none. */
+function requireMemberUserId(session: Session): number {
+  if (session.userId === null) {
+    throw new AppError(
+      'FORBIDDEN',
+      'Mit dem Root-Admin-Konto nicht möglich. Bitte mit einem persönlichen Konto anmelden.',
+      403,
+    )
+  }
+  return session.userId
+}
+
+app.get('/me/profile', requireAuth, async (c) => {
+  const userId = requireMemberUserId(c.get('session'))
+  const db = createDb(c.env.DB)
+  return c.json(await getProfileOrThrow(db, userId))
+})
+
+app.patch('/me/profile', requireAuth, async (c) => {
+  const session = c.get('session')
+  const userId = requireMemberUserId(session)
+  const body = await c.req.json()
+  const parsed = updateMyProfileInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const profile = await updateProfile(db, userId, parsed.data)
+  // Keep the JWT `name` claim fresh so the shell header doesn't show
+  // the old name until the cookie expires.
+  const name = `${profile.first_name} ${profile.last_name}`
+  if (name !== session.name) {
+    setSessionCookie(
+      c,
+      await signSessionToken(c.env.JWT_SECRET, {
+        userId: session.userId,
+        role: session.role,
+        name,
+      }),
+    )
+  }
+  return c.json(profile)
+})
+
+app.post('/me/password', requireAuth, async (c) => {
+  const userId = requireMemberUserId(c.get('session'))
+  const body = await c.req.json()
+  const parsed = changePasswordInputSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const credentials = await findUserCredentials(db, userId)
+  if (!credentials?.password_hash) {
+    return c.json(
+      makeError(
+        'VALIDATION_ERROR',
+        'Für dieses Konto ist kein Passwort gesetzt.',
+      ),
+      400,
+    )
+  }
+  const valid = await verifyPassword(
+    parsed.data.current_password,
+    credentials.password_hash,
+  )
+  if (!valid) {
+    // 400, not 401 — the client treats 401 as a lost session.
+    return c.json(
+      makeError('VALIDATION_ERROR', 'Das aktuelle Passwort ist falsch.'),
+      400,
+    )
+  }
+  await updatePassword(db, userId, await hashPassword(parsed.data.new_password))
+  return c.json({ ok: true })
+})
+
+app.get('/me/calendar-token', requireAuth, async (c) => {
+  const userId = requireMemberUserId(c.get('session'))
+  const db = createDb(c.env.DB)
+  const row = await getFeedToken(db, userId)
+  const status: CalendarFeedTokenStatus = {
+    exists: row !== undefined,
+    token_fingerprint: row ? row.token_hash.slice(0, 8) : null,
+    created_at: row?.created_at ?? null,
+    last_used_at: row?.last_used_at ?? null,
+  }
+  return c.json(status)
+})
+
+app.post('/me/calendar-token', requireAuth, async (c) => {
+  const userId = requireMemberUserId(c.get('session'))
+  const db = createDb(c.env.DB)
+  const { row, plaintext } = await rotateFeedToken(db, userId)
+  const response: CreateCalendarFeedTokenResponse = {
+    // The plaintext token exists only inside this URL — it is shown
+    // exactly once and never recoverable from the server.
+    url: `${requestOrigin(c)}/api/ics/${plaintext}.ics`,
+    token_fingerprint: row.token_hash.slice(0, 8),
+  }
+  return c.json(response, 201)
+})
+
+app.delete('/me/calendar-token', requireAuth, async (c) => {
+  const userId = requireMemberUserId(c.get('session'))
+  const db = createDb(c.env.DB)
+  await revokeFeedToken(db, userId)
+  return c.json({ ok: true })
+})
+
+// ── Public iCal feed (token-authenticated) ─────────────────────────────────
+
+app.get('/ics/:token', async (c) => {
+  const raw = c.req.param('token')
+  const token = raw.endsWith('.ics') ? raw.slice(0, -'.ics'.length) : raw
+  if (!isValidTokenShape(token)) {
+    return c.json(makeError('NOT_FOUND', 'Kalender-Feed nicht gefunden.'), 404)
+  }
+  const db = createDb(c.env.DB)
+  await resolveFeedToken(db, token)
+  // Bounded window so the feed payload stays small: 3 months back,
+  // 12 months ahead (Vienna calendar dates).
+  const nowVienna = toVienna(nowUtc())
+  const merged = await getMergedCalendar(db, {
+    from: nowVienna.subtract(3, 'month').format('YYYY-MM-DD'),
+    to: nowVienna.add(12, 'month').format('YYYY-MM-DD'),
+  })
+  const ical = buildCalendarFeed(
+    feedEntriesFromCalendar(merged, requestOrigin(c)),
+  )
+  return new Response(ical, {
+    headers: {
+      'Content-Type': ICAL_CONTENT_TYPE,
+      // Clients poll subscriptions on their own schedule; the
+      // max-age just keeps rapid refreshes off the worker.
+      'Cache-Control': 'private, max-age=900',
+      'Content-Disposition': 'inline; filename="garten-kalender.ics"',
+    },
+  })
+})
+
 app.use('/admin/*', requireAdmin)
 
 app.get('/admin/polls', async (c) => {
@@ -1180,6 +1715,21 @@ app.post('/admin/events', async (c) => {
   }
   const db = createDb(c.env.DB)
   const event = await createEvent(db, parsed.data)
+  const session = c.get('session')
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'created',
+        kind: 'termin',
+        title: event.title,
+        whenText: formatTerminWhen(event.scheduled_date, event.scheduled_time),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
   return c.json(event, 201)
 })
 
@@ -1203,7 +1753,33 @@ app.patch('/admin/events/:slug', async (c) => {
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
   await updateEvent(db, event.id, parsed.data)
-  return c.json(await findEventWithDetails(db, event.id))
+  const updated = await findEventWithDetails(db, event.id)
+  // Members are only notified when the schedule moved — agenda or
+  // protocol edits stay quiet.
+  if (
+    updated.scheduled_date !== event.scheduled_date ||
+    updated.scheduled_time !== event.scheduled_time
+  ) {
+    const session = c.get('session')
+    c.executionCtx.waitUntil(
+      notifyCalendarChange(
+        db,
+        c.env,
+        {
+          change: 'rescheduled',
+          kind: 'termin',
+          title: updated.title,
+          whenText: formatTerminWhen(
+            updated.scheduled_date,
+            updated.scheduled_time,
+          ),
+          actorName: session.name,
+        },
+        { actorUserId: session.userId, origin: requestOrigin(c) },
+      ),
+    )
+  }
+  return c.json(updated)
 })
 
 app.delete('/admin/events/:slug', async (c) => {
@@ -1211,6 +1787,21 @@ app.delete('/admin/events/:slug', async (c) => {
   const db = createDb(c.env.DB)
   const event = await findEventBySlugOrThrow(db, slug)
   await deleteEvent(db, event.id)
+  const session = c.get('session')
+  c.executionCtx.waitUntil(
+    notifyCalendarChange(
+      db,
+      c.env,
+      {
+        change: 'cancelled',
+        kind: 'termin',
+        title: event.title,
+        whenText: formatTerminWhen(event.scheduled_date, event.scheduled_time),
+        actorName: session.name,
+      },
+      { actorUserId: session.userId, origin: requestOrigin(c) },
+    ),
+  )
   return c.json({ ok: true })
 })
 

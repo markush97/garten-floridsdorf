@@ -35,4 +35,12 @@ export const queryKeys = {
     memberDetail: (slug: string) =>
       ['events', 'member', 'detail', slug] as const,
   },
+  calendar: {
+    all: ['calendar'] as const,
+    month: (monat: string) => ['calendar', 'month', monat] as const,
+  },
+  profile: {
+    me: ['profile', 'me'] as const,
+    calendarToken: ['profile', 'calendar-token'] as const,
+  },
 }

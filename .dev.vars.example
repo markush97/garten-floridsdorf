@@ -7,7 +7,11 @@
 ADMIN_PASSWORD = "changeme"
 JWT_SECRET = "local-dev-secret-please-change"
 
-# Optional: without these, magic sign-in links are logged to the worker
-# console instead of e-mailed (fine for local dev).
-RESEND_API_KEY = ""
-EMAIL_FROM = "SV Beet & Bewegung <anmeldung@garten-floridsdorf.at>"
+# Outbound e-mail is delivered through the self-hosted `smtprelay`
+# container running next to Mailcow (see docs/smtp-relay.md).
+# Without SMTP_RELAY_URL the Worker logs the mail body to the
+# console instead of sending (fine for local dev).
+SMTP_RELAY_URL = "https://mail-relay.beetbewegung.at"
+SMTP_RELAY_TOKEN = "change-me-long-random-string"
+# Optional override for the From address; defaults to anmeldung@beetbewegung.at.
+EMAIL_FROM = "SV Beet & Bewegung <anmeldung@beetbewegung.at>"

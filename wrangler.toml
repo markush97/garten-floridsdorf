@@ -21,3 +21,9 @@ migrations_dir = "drizzle"
 binding = "ATTACHMENTS"
 bucket_name = "garten-floridsdorf-attachments"
 preview_bucket_name = "garten-floridsdorf-attachments-preview"
+
+# Outbound transactional mail is delivered through the `smtprelay`
+# container running on our own mailserver (see docs/smtp-relay.md).
+# The Worker POSTs to `${SMTP_RELAY_URL}/send` and authenticates
+# with the shared `SMTP_RELAY_TOKEN` (sent as `X-SMTP-Token`).
+# Workers can't open raw TCP, so this relay bridges HTTPS → SMTP.

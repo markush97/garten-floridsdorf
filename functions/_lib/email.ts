@@ -1,49 +1,94 @@
 /**
- * Outbound e-mail via the Resend HTTP API — the only thing we send
- * is the magic sign-in link. When `RESEND_API_KEY` is not
- * configured (local dev), the mail is skipped and the link is
- * logged to the worker console instead so the flow stays testable.
+ * Outbound e-mail via our self-hosted SMTP relay. Workers can't open
+ * raw TCP, so the Worker POSTs a small JSON envelope to an HTTP
+ * bridge running on the mailserver, which translates it into SMTP.
+ * The bridge contract is documented in `docs/smtp-relay.md`.
+ *
+ * When `SMTP_RELAY_URL` is missing (e.g. local dev without the
+ * relay), the mail is logged to the worker console instead so the
+ * flows stay testable.
  */
 
+const DEFAULT_FROM = 'SV Beet & Bewegung <anmeldung@beetbewegung.at>'
+
 export type EmailEnv = {
-  RESEND_API_KEY?: string
+  SMTP_RELAY_URL?: string
+  SMTP_RELAY_TOKEN?: string
   EMAIL_FROM?: string
 }
 
-const DEFAULT_FROM = 'SV Beet & Bewegung <anmeldung@garten-floridsdorf.at>'
+function fromAddress(env: EmailEnv): string {
+  return env.EMAIL_FROM ?? DEFAULT_FROM
+}
+
+export type RelayErrorCode =
+  | 'UNAUTHORIZED'
+  | 'BAD_REQUEST'
+  | 'UPSTREAM_FAILURE'
+  | 'UNKNOWN'
+
+function classifyRelayError(status: number): RelayErrorCode {
+  if (status === 401 || status === 403) return 'UNAUTHORIZED'
+  if (status === 400 || status === 422) return 'BAD_REQUEST'
+  if (status >= 500 && status < 600) return 'UPSTREAM_FAILURE'
+  return 'UNKNOWN'
+}
+
+export async function sendEmail(
+  env: EmailEnv,
+  to: string,
+  subject: string,
+  text: string,
+): Promise<void> {
+  if (!env.SMTP_RELAY_URL) {
+    console.log(
+      `[email] SMTP_RELAY_URL not set — mail to ${to} skipped.\nSubject: ${subject}\n${text}`,
+    )
+    return
+  }
+  const response = await fetch(
+    `${env.SMTP_RELAY_URL.replace(/\/$/, '')}/send`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(env.SMTP_RELAY_TOKEN
+          ? { 'X-SMTP-Token': env.SMTP_RELAY_TOKEN }
+          : {}),
+      },
+      body: JSON.stringify({
+        from: fromAddress(env),
+        to,
+        subject,
+        text,
+      }),
+    },
+  )
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(
+      `SMTP relay returned ${response.status} (${classifyRelayError(response.status)}): ${detail}`,
+    )
+  }
+}
 
 export async function sendMagicLinkEmail(
   env: EmailEnv,
   to: string,
   url: string,
 ): Promise<void> {
-  if (!env.RESEND_API_KEY) {
-    console.log(`[email] RESEND_API_KEY not set — magic link for ${to}: ${url}`)
-    return
-  }
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM ?? DEFAULT_FROM,
-      to: [to],
-      subject: 'Dein Anmeldelink – SV Beet & Bewegung',
-      text: [
-        'Hallo!',
-        '',
-        'Mit diesem Link meldest du dich beim internen Bereich an:',
-        url,
-        '',
-        'Der Link ist 15 Minuten gültig und funktioniert nur einmal.',
-        'Wenn du diese E-Mail nicht angefordert hast, kannst du sie ignorieren.',
-      ].join('\n'),
-    }),
-  })
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`Resend returned ${response.status}: ${detail}`)
-  }
+  await sendEmail(
+    env,
+    to,
+    'Dein Anmeldelink – SV Beet & Bewegung',
+    [
+      'Hallo!',
+      '',
+      'Mit diesem Link meldest du dich beim internen Bereich an:',
+      url,
+      '',
+      'Der Link ist 15 Minuten gültig und funktioniert nur einmal.',
+      'Wenn du diese E-Mail nicht angefordert hast, kannst du sie ignorieren.',
+    ].join('\n'),
+  )
 }
