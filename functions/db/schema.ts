@@ -703,6 +703,117 @@ export const bank_entries = sqliteTable('bank_entries', {
   updated_at: text('updated_at').notNull(),
 })
 
+// ---------------------------------------------------------------------------
+// Tasks / Aufgaben: a shared member to-do board. Every signed-in member may
+// create tasks; a task can be a one-off or an occurrence generated from a
+// recurring series (`task_series`). Sub-tasks are a simple checklist. All
+// creator/assignee names are snapshotted so rows survive user deletion (same
+// pattern as documents, bookings, and the Kassa module).
+// ---------------------------------------------------------------------------
+
+/**
+ * A recurring task template. Occurrences are materialized lazily (no cron):
+ * whenever the task list is loaded, every active series whose
+ * `next_occurrence_date` has arrived spawns a concrete `tasks` row and the
+ * date is advanced by one interval. Deleting a series stops the recurrence;
+ * already-generated tasks keep working (their `series_id` is set null).
+ */
+export const task_series = sqliteTable('task_series', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  description: text('description'),
+  // The state each freshly generated occurrence starts in.
+  state: text('state', {
+    enum: [
+      'idee',
+      'planung',
+      'ausfuehrung',
+      'blockiert',
+      'abgeschlossen',
+      'abgebrochen',
+    ],
+  })
+    .notNull()
+    .default('idee'),
+  price_estimate_cents: integer('price_estimate_cents'),
+  assignee_user_id: integer('assignee_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  assignee_name: text('assignee_name'),
+  interval_count: integer('interval_count').notNull(),
+  interval_unit: text('interval_unit', {
+    enum: ['day', 'week', 'month'],
+  }).notNull(),
+  // Vienna wall date (YYYY-MM-DD) of the next occurrence to spawn.
+  next_occurrence_date: text('next_occurrence_date').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  created_by_user_id: integer('created_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  created_by_name: text('created_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+export const tasks = sqliteTable('tasks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  description: text('description'),
+  state: text('state', {
+    enum: [
+      'idee',
+      'planung',
+      'ausfuehrung',
+      'blockiert',
+      'abgeschlossen',
+      'abgebrochen',
+    ],
+  })
+    .notNull()
+    .default('idee'),
+  price_estimate_cents: integer('price_estimate_cents'),
+  // Vienna wall date (YYYY-MM-DD) or null = no due date.
+  due_date: text('due_date'),
+  assignee_user_id: integer('assignee_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  assignee_name: text('assignee_name'),
+  // The recurring series this task was generated from, or null for a
+  // one-off. Set null (not cascade) so stopping a series keeps its
+  // already-created tasks around.
+  series_id: integer('series_id').references(() => task_series.id, {
+    onDelete: 'set null',
+  }),
+  created_by_user_id: integer('created_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  created_by_name: text('created_by_name').notNull(),
+  completed_at: text('completed_at'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+/**
+ * A checklist item. Belongs to exactly one of a concrete `task` (a real
+ * checklist entry with a `done` state) or a `task_series` (a template copied
+ * onto every generated occurrence; `done` is ignored there). Exactly one of
+ * `task_id` / `series_id` is set — enforced at the query layer, mirroring the
+ * `document_share_tokens` pattern.
+ */
+export const task_subtasks = sqliteTable('task_subtasks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  task_id: integer('task_id').references(() => tasks.id, {
+    onDelete: 'cascade',
+  }),
+  series_id: integer('series_id').references(() => task_series.id, {
+    onDelete: 'cascade',
+  }),
+  title: text('title').notNull(),
+  description: text('description'),
+  done: integer('done', { mode: 'boolean' }).notNull().default(false),
+  sort_order: integer('sort_order').notNull().default(0),
+})
+
 // Inferred row types for query returns and route-handler response
 // shapes. `token_hash` never leaves the server — the admin routes
 // expose a short fingerprint instead.
@@ -716,3 +827,6 @@ export type CalendarFeedTokenRow = typeof calendar_feed_tokens.$inferSelect
 export type ExpenseRow = typeof expenses.$inferSelect
 export type ExpenseShareRow = typeof expense_shares.$inferSelect
 export type BankEntryRow = typeof bank_entries.$inferSelect
+export type TaskSeriesRow = typeof task_series.$inferSelect
+export type TaskRow = typeof tasks.$inferSelect
+export type TaskSubtaskRow = typeof task_subtasks.$inferSelect

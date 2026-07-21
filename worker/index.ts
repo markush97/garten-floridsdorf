@@ -91,6 +91,13 @@ import {
   submitVotesInputSchema,
 } from '../functions/contracts/poll'
 import {
+  createTaskInputSchema,
+  subtaskInputSchema,
+  updateSubtaskInputSchema,
+  updateTaskInputSchema,
+  updateTaskSeriesInputSchema,
+} from '../functions/contracts/task'
+import {
   changePasswordInputSchema,
   createUserInputSchema,
   updateMyProfileInputSchema,
@@ -220,6 +227,20 @@ import {
   resolveShareToken,
   revokeShareToken,
 } from '../functions/db/queries/share-tokens'
+import {
+  addSubtask,
+  createTask,
+  deleteSeries,
+  deleteSubtask,
+  deleteTask as deleteTaskItem,
+  findSeriesOrThrow,
+  findTaskOrThrow,
+  listAssignableMembers,
+  listTasks,
+  updateSeries,
+  updateSubtask,
+  updateTask as updateTaskItem,
+} from '../functions/db/queries/tasks'
 import {
   createUser,
   deleteUser,
@@ -1745,6 +1766,156 @@ app.delete('/kassa/bank-entries/:id', requireAuth, async (c) => {
   const db = createDb(c.env.DB)
   await assertCanApprove(c, db)
   await deleteBankEntry(db, id)
+  return c.json({ ok: true })
+})
+
+// ── Tasks / Aufgaben (all signed-in members) ─────────────────────────────────
+//
+// A shared member to-do board. Every signed-in member may create tasks and
+// edit / complete them and their checklists (collaborative). Only the creator
+// or an admin may delete a task or stop a recurring series. Recurring tasks
+// are modelled as a `task_series` whose occurrences are materialized lazily on
+// `GET /tasks` — there is no cron trigger.
+
+app.get('/tasks/members', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listAssignableMembers(db))
+})
+
+app.get('/tasks', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listTasks(db))
+})
+
+app.post('/tasks', requireAuth, async (c) => {
+  const parsed = createTaskInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const result = await createTask(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  return c.json(result, 201)
+})
+
+app.patch('/tasks/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateTaskInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await findTaskOrThrow(db, id)
+  return c.json(await updateTaskItem(db, id, parsed.data))
+})
+
+app.delete('/tasks/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const existing = await findTaskOrThrow(db, id)
+  if (!canManageDocumentTarget(c.get('session'), existing.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteTaskItem(db, id)
+  return c.json({ ok: true })
+})
+
+app.post('/tasks/:id/subtasks', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = subtaskInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  return c.json(await addSubtask(db, id, parsed.data), 201)
+})
+
+app.patch('/tasks/:id/subtasks/:subId', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const subId = Number(c.req.param('subId'))
+  if (
+    !Number.isInteger(id) ||
+    id <= 0 ||
+    !Number.isInteger(subId) ||
+    subId <= 0
+  ) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateSubtaskInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  return c.json(await updateSubtask(db, id, subId, parsed.data))
+})
+
+app.delete('/tasks/:id/subtasks/:subId', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const subId = Number(c.req.param('subId'))
+  if (
+    !Number.isInteger(id) ||
+    id <= 0 ||
+    !Number.isInteger(subId) ||
+    subId <= 0
+  ) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  return c.json(await deleteSubtask(db, id, subId))
+})
+
+app.patch('/task-series/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateTaskSeriesInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  await findSeriesOrThrow(db, id)
+  return c.json(await updateSeries(db, id, parsed.data))
+})
+
+app.delete('/task-series/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const existing = await findSeriesOrThrow(db, id)
+  if (!canManageDocumentTarget(c.get('session'), existing.created_by_user_id)) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteSeries(db, id)
   return c.json({ ok: true })
 })
 

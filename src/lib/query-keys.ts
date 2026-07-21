@@ -50,4 +50,8 @@ export const queryKeys = {
     members: ['kassa', 'members'] as const,
     bankEntries: ['kassa', 'bank-entries'] as const,
   },
+  tasks: {
+    all: ['tasks'] as const,
+    members: ['tasks', 'members'] as const,
+  },
 }

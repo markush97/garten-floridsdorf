@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { chromium } from 'playwright'
