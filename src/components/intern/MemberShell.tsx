@@ -12,13 +12,19 @@ type MemberShellProps = {
 }
 
 type MemberNavItem = {
-  to: '/intern' | '/intern/termine' | '/intern/kassa' | '/intern/aufgaben'
+  to:
+    | '/intern'
+    | '/intern/termine'
+    | '/intern/kalender'
+    | '/intern/kassa'
+    | '/intern/aufgaben'
   label: string
 }
 
 const MEMBER_NAV_ITEMS: readonly MemberNavItem[] = [
   { to: '/intern', label: 'Dokumente' },
   { to: '/intern/termine', label: 'Termine' },
+  { to: '/intern/kalender', label: 'Kalender' },
   { to: '/intern/aufgaben', label: 'Aufgaben' },
   { to: '/intern/kassa', label: 'Kassa' },
 ] as const
