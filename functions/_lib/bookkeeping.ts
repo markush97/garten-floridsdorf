@@ -162,15 +162,16 @@ function owe(
  *
  * Balance:  Σ bank entries (opening/income +, reimbursement −)
  *           − Σ approved expenses paid from the Vereinskonto.
- * Debts:    netted per party pair (Splitwise style). Whoever fronted a
- *           bill is the creditor — a member privately, otherwise the
- *           Vereinskassa; every materialized share is a debt of that
- *           member towards the creditor. A privately paid bill the
- *           Vereinskassa bears is a debt of the Verein towards the
- *           payer. Reimbursements, member income entries and paybacks
- *           settle those debts.
- * Position: each member's net across all counterparties (positive =
- *           gets money back).
+ * Position: each party's net over every obligation (positive = gets
+ *           money back). Whoever fronted a bill is the creditor — a
+ *           member privately, otherwise the Vereinskassa; every
+ *           materialized share is a debt of that member towards the
+ *           creditor. A privately paid bill the Vereinskassa bears is a
+ *           debt of the Verein towards the payer. Reimbursements,
+ *           member income entries and paybacks settle those debts.
+ *           Only members are reported (`positions`).
+ * Debts:    the consolidated settlement plan for those nets, see
+ *           `consolidateDebts`.
  */
 export function computeKassaOverview(
   expenses: LedgerExpense[],
@@ -233,21 +234,16 @@ export function computeKassaOverview(
     )
   }
 
-  const debts: OutstandingDebt[] = [...pairs.values()]
-    .filter((pair) => pair.cents !== 0)
-    .map((pair) =>
-      pair.cents > 0
-        ? { from: pair.a, to: pair.b, amount_cents: pair.cents }
-        : { from: pair.b, to: pair.a, amount_cents: -pair.cents },
-    )
-    .sort(
-      (x, y) =>
-        x.from.name.localeCompare(y.from.name) ||
-        y.amount_cents - x.amount_cents ||
-        x.to.name.localeCompare(y.to.name),
-    )
-
-  const positionList = buildPositions(debts)
+  const balances = netPerParty(pairs)
+  const debts = consolidateDebts(balances)
+  const positionList: MemberPosition[] = balances
+    .filter((b) => b.party.kind === 'member')
+    .map((b) => ({
+      user_id: b.party.user_id,
+      name: b.party.name,
+      net_cents: b.net_cents,
+    }))
+    .sort((a, b) => b.net_cents - a.net_cents)
 
   return {
     balance_cents: balance,
@@ -276,34 +272,84 @@ export function computeKassaOverview(
   }
 }
 
+/** What one party is owed (positive) or still has to pay (negative). */
+export type PartyBalance = { party: DebtParty; net_cents: number }
+
 /**
- * Rolls the pairwise debts up into one net figure per member (the
- * Vereinskassa is not a member, so it is left out): positive means the
- * member gets money back, negative that they still have to pay.
+ * Rolls the pairwise obligations up into one net figure per party
+ * (members and the Vereinskassa alike), dropping the settled ones.
  */
-function buildPositions(debts: OutstandingDebt[]): MemberPosition[] {
-  const positions = new Map<string, MemberPosition>()
+function netPerParty(pairs: Map<string, PairBalance>): PartyBalance[] {
+  const nets = new Map<string, PartyBalance>()
   const bump = (party: DebtParty, delta: number) => {
-    if (party.kind === 'verein') return
     const key = partyKey(party)
-    const existing = positions.get(key)
+    const existing = nets.get(key)
     if (existing) {
       existing.net_cents += delta
     } else {
-      positions.set(key, {
-        user_id: party.user_id,
-        name: party.name,
-        net_cents: delta,
-      })
+      nets.set(key, { party, net_cents: delta })
     }
   }
-  for (const debt of debts) {
-    bump(debt.from, -debt.amount_cents)
-    bump(debt.to, debt.amount_cents)
+  for (const pair of pairs.values()) {
+    bump(pair.a, -pair.cents)
+    bump(pair.b, pair.cents)
   }
-  return [...positions.values()]
-    .filter((p) => p.net_cents !== 0)
-    .sort((a, b) => b.net_cents - a.net_cents)
+  return [...nets.values()].filter((n) => n.net_cents !== 0)
+}
+
+/**
+ * Turns net balances into the shortest list of payments that settles
+ * them all: the biggest debtor pays the biggest creditor, repeatedly
+ * (the classic greedy plan, at most one payment per party minus one).
+ *
+ * That deliberately ignores who owed whom originally — nobody should
+ * hand money to someone who then has to pass it on. So a member may be
+ * asked to pay someone they never shared a bill with, and the
+ * Vereinskassa takes part like any other party: settling its share of
+ * a member's claim directly leaves both the Kontostand and everyone's
+ * net position correct.
+ */
+export function consolidateDebts(balances: PartyBalance[]): OutstandingDebt[] {
+  // Largest amounts first, name as the tie-break so the plan is stable.
+  const bySize = (a: PartyBalance, b: PartyBalance) =>
+    Math.abs(b.net_cents) - Math.abs(a.net_cents) ||
+    a.party.name.localeCompare(b.party.name)
+  const debtors = balances
+    .filter((b) => b.net_cents < 0)
+    .sort(bySize)
+    .map((b) => ({ party: b.party, open: -b.net_cents }))
+  const creditors = balances
+    .filter((b) => b.net_cents > 0)
+    .sort(bySize)
+    .map((b) => ({ party: b.party, open: b.net_cents }))
+
+  const debts: OutstandingDebt[] = []
+  let d = 0
+  let c = 0
+  while (d < debtors.length && c < creditors.length) {
+    const debtor = debtors[d]
+    const creditor = creditors[c]
+    if (!debtor || !creditor) break
+    const amount = Math.min(debtor.open, creditor.open)
+    if (amount > 0) {
+      debts.push({
+        from: debtor.party,
+        to: creditor.party,
+        amount_cents: amount,
+      })
+    }
+    debtor.open -= amount
+    creditor.open -= amount
+    if (debtor.open === 0) d++
+    if (creditor.open === 0) c++
+  }
+
+  return debts.sort(
+    (x, y) =>
+      x.from.name.localeCompare(y.from.name) ||
+      y.amount_cents - x.amount_cents ||
+      x.to.name.localeCompare(y.to.name),
+  )
 }
 
 /** Sum expense amounts per group key, in the enum's order, dropping empties. */

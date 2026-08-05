@@ -160,7 +160,8 @@ function groupByDebtor(
 }
 
 /**
- * Who still has to pay whom, netted per pair. A payback between two
+ * The settlement plan: who still has to pay whom, reduced to as few
+ * payments as possible (see `consolidateDebts`). A payback between two
  * members can be recorded straight from the row — a member may only do
  * that for their own debts, a Kassier for any.
  */
@@ -233,8 +234,9 @@ function DebtsCard({
           </ul>
         )}
         <p className="text-xs text-forest-700/55">
-          Anteile an Rechnungen, die jemand ausgelegt hat, verrechnet mit
-          bereits erfassten Rückzahlungen.
+          Alle Anteile und erfassten Rückzahlungen gegeneinander verrechnet und
+          auf möglichst wenige Zahlungen zusammengefasst – so zahlt jede:r in
+          der Regel nur an eine Person.
         </p>
       </CardContent>
     </Card>

@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   computeKassaOverview,
   computeSplitShares,
+  consolidateDebts,
   type LedgerBankEntry,
   type LedgerExpense,
   type LedgerMemberPayment,
   type LedgerShare,
+  type PartyBalance,
   type SplitMember,
 } from './bookkeeping'
 
@@ -124,19 +126,18 @@ describe('computeKassaOverview', () => {
     expect(overview.total_expenses_cents).toBe(32000)
   })
 
-  it('books every share as a debt towards whoever fronted the bill', () => {
-    // Bert fronted the split bill, so the other three owe him directly.
-    expect(pairs().get('Anna->Bert')).toBe(2500)
+  it('routes every open payment to the one member who is owed money', () => {
+    // Bert is the only creditor (+7500), so everyone pays him — even the
+    // Vereinskassa, which owes Anna 2000 of it.
+    expect(pairs().get('Anna->Bert')).toBe(500)
     expect(pairs().get('Cara->Bert')).toBe(2500)
     expect(pairs().get('Dora->Bert')).toBe(2500)
-    // Bert's own share cancels — no self-debt row.
-    expect(pairs().get('Bert->Bert')).toBeUndefined()
+    expect(pairs().get('Vereinskassa->Bert')).toBe(2000)
+    expect(overview.debts).toHaveLength(4)
   })
 
-  it('nets a reimbursement against what the Verein owes the payer', () => {
-    // Anna fronted 10000 for the Verein and got 8000 back.
-    expect(pairs().get('Vereinskassa->Anna')).toBe(2000)
-    expect(pairs().get('Anna->Vereinskassa')).toBeUndefined()
+  it('never asks anyone to pay themselves', () => {
+    expect(overview.debts.filter((d) => d.from.name === d.to.name)).toEqual([])
   })
 
   it('sorts the open payments by debtor name', () => {
@@ -305,8 +306,10 @@ describe('computeKassaOverview with selected cost bearers', () => {
     expect(byName.get('Anna')).toBe(3000)
   })
 
-  it('flips the direction when a member pays back too much', () => {
-    const { pairs } = run([
+  it('routes an overpayment onward instead of paying it back', () => {
+    // Cara paid 4000 on a 3000 share, so she is owed 1000 — which Dora
+    // (still owing 3000) settles directly. Anna gets the other 2000.
+    const { result, pairs } = run([
       {
         from_user_id: 3,
         from_name: 'Cara',
@@ -315,11 +318,12 @@ describe('computeKassaOverview with selected cost bearers', () => {
         amount_cents: 4000,
       },
     ])
-    expect(pairs.get('Cara->Anna')).toBeUndefined()
-    expect(pairs.get('Anna->Cara')).toBe(1000)
+    expect(pairs.get('Dora->Anna')).toBe(2000)
+    expect(pairs.get('Dora->Cara')).toBe(1000)
+    expect(result.debts).toHaveLength(2)
   })
 
-  it('nets paybacks in both directions on the same pair', () => {
+  it('nets paybacks in both directions between the same two members', () => {
     const { pairs } = run([
       {
         from_user_id: 3,
@@ -337,5 +341,118 @@ describe('computeKassaOverview with selected cost bearers', () => {
       },
     ])
     expect(pairs.get('Cara->Anna')).toBe(1000)
+    expect(pairs.get('Dora->Anna')).toBe(3000)
+  })
+})
+
+describe('consolidateDebts', () => {
+  function member(id: number, name: string, netCents: number): PartyBalance {
+    return {
+      party: { kind: 'member', user_id: id, name },
+      net_cents: netCents,
+    }
+  }
+  const verein = (netCents: number): PartyBalance => ({
+    party: { kind: 'verein', user_id: null, name: 'Vereinskassa' },
+    net_cents: netCents,
+  })
+
+  it('sends everyone to the single creditor', () => {
+    // The real numbers from the Kassa overview: Markus fronted almost
+    // everything, so three payments settle the whole club.
+    const debts = consolidateDebts([
+      member(1, 'Markus Hinkel', 120582),
+      member(2, 'Thomas Hinkel', -10706),
+      member(3, 'Doris Hinkel', -49170),
+      member(4, 'Marlen Hinkel', -60706),
+    ])
+    expect(
+      debts.map((d) => `${d.from.name} → ${d.to.name}: ${d.amount_cents}`),
+    ).toEqual([
+      'Doris Hinkel → Markus Hinkel: 49170',
+      'Marlen Hinkel → Markus Hinkel: 60706',
+      'Thomas Hinkel → Markus Hinkel: 10706',
+    ])
+  })
+
+  it('needs at most one payment per party minus one', () => {
+    const debts = consolidateDebts([
+      member(1, 'Anna', 6000),
+      member(2, 'Bert', 3000),
+      member(3, 'Cara', -4000),
+      member(4, 'Dora', -5000),
+    ])
+    expect(debts.length).toBeLessThanOrEqual(3)
+    // Dora, the biggest debtor, clears the biggest creditor first; only
+    // Cara has to split her payment across the two creditors. Rows are
+    // listed per debtor, largest amount first.
+    expect(debts).toEqual([
+      {
+        from: { kind: 'member', user_id: 3, name: 'Cara' },
+        to: { kind: 'member', user_id: 2, name: 'Bert' },
+        amount_cents: 3000,
+      },
+      {
+        from: { kind: 'member', user_id: 3, name: 'Cara' },
+        to: { kind: 'member', user_id: 1, name: 'Anna' },
+        amount_cents: 1000,
+      },
+      {
+        from: { kind: 'member', user_id: 4, name: 'Dora' },
+        to: { kind: 'member', user_id: 1, name: 'Anna' },
+        amount_cents: 5000,
+      },
+    ])
+  })
+
+  it('settles every net exactly', () => {
+    const balances = [
+      member(1, 'Anna', 7333),
+      member(2, 'Bert', -2111),
+      member(3, 'Cara', -1222),
+      verein(-4000),
+    ]
+    const debts = consolidateDebts(balances)
+    const settled = new Map<string, number>()
+    for (const debt of debts) {
+      settled.set(
+        debt.from.name,
+        (settled.get(debt.from.name) ?? 0) - debt.amount_cents,
+      )
+      settled.set(
+        debt.to.name,
+        (settled.get(debt.to.name) ?? 0) + debt.amount_cents,
+      )
+    }
+    for (const balance of balances) {
+      expect(settled.get(balance.party.name)).toBe(balance.net_cents)
+    }
+  })
+
+  it('lets the Vereinskassa settle a claim directly', () => {
+    const debts = consolidateDebts([member(1, 'Anna', 5000), verein(-5000)])
+    expect(debts).toEqual([
+      {
+        from: { kind: 'verein', user_id: null, name: 'Vereinskassa' },
+        to: { kind: 'member', user_id: 1, name: 'Anna' },
+        amount_cents: 5000,
+      },
+    ])
+  })
+
+  it('returns nothing when everything is settled', () => {
+    expect(consolidateDebts([])).toEqual([])
+    expect(consolidateDebts([member(1, 'Anna', 0)])).toEqual([])
+  })
+
+  it('is stable for equal amounts', () => {
+    const balances = [
+      member(1, 'Anna', 2000),
+      member(2, 'Bert', -1000),
+      member(3, 'Cara', -1000),
+    ]
+    expect(consolidateDebts(balances)).toEqual(
+      consolidateDebts([...balances].reverse()),
+    )
   })
 })
