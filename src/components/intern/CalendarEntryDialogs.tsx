@@ -254,7 +254,9 @@ function BookingForm({
   const [startDate, setStartDate] = useState(editing?.start_date ?? defaultDate)
   const [startTime, setStartTime] = useState(editing?.start_time ?? '14:00')
   const [endDate, setEndDate] = useState(editing?.end_date ?? defaultDate)
-  const [endTime, setEndTime] = useState(editing?.end_time ?? '11:00')
+  // Defaults to a same-day reservation — an overnight stay is optional,
+  // for one just move the end date forward.
+  const [endTime, setEndTime] = useState(editing?.end_time ?? '18:00')
   const [note, setNote] = useState(editing?.note ?? '')
 
   const isPending = isCreating || isUpdating
@@ -291,14 +293,14 @@ function BookingForm({
           {editing ? 'Reservierung bearbeiten' : 'Exklusive Reservierung'}
         </DialogTitle>
         <DialogDescription>
-          Reserviert die Anlage exklusiv (Übernachtung). Es gelten die
-          Statuten-Regeln für Vorlauf und Abrechnung.
+          Reserviert die Anlage exklusiv – mit oder ohne Übernachtung. Es gelten
+          die Statuten-Regeln für Vorlauf und Abrechnung.
         </DialogDescription>
       </DialogHeader>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Anreise</Label>
+          <Label>Beginn</Label>
           <IsoDateField onChange={setStartDate} required value={startDate} />
         </div>
         <div className="space-y-1.5">
@@ -315,7 +317,7 @@ function BookingForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Abreise</Label>
+          <Label>Ende</Label>
           <IsoDateField onChange={setEndDate} required value={endDate} />
         </div>
         <div className="space-y-1.5">

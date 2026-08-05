@@ -9,12 +9,13 @@ import { DEFAULT_TIMEZONE, dayjs, toVienna } from './dayjs'
  * Rules:
  *   - bookings must be made at least `BOOKING_MIN_LEAD_DAYS` days
  *     in advance (Vienna calendar days),
- *   - a booking must span at least one night (end on a later Vienna
- *     calendar date than the start),
+ *   - an overnight stay is optional: a reservation may end on the
+ *     same Vienna calendar date it started on,
  *   - a day ends at 10:00 — checking out strictly after 10:00 adds
  *     one billed day,
  *   - a booking longer than 24 hours per billed day counts extra:
- *     billed = max(nights + lateCheckout, ceil(duration / 24 h)).
+ *     billed = max(nights + lateCheckout, ceil(duration / 24 h)),
+ *     so any period shorter than a day still bills one.
  */
 
 /** Vienna wall-time period as entered by the user. */
@@ -67,9 +68,11 @@ export function utcToBookingPeriod(
 
 /**
  * The billed-day count per the Vereinsstatuten. Nights are a pure
- * calendar-date difference (DST-proof); the duration is measured
- * between the real Vienna instants so a wall-clock "24 hours" across
- * a DST switch is billed by its true length.
+ * calendar-date difference (DST-proof) and may be zero for a
+ * same-day reservation; the duration is measured between the real
+ * Vienna instants so a wall-clock "24 hours" across a DST switch is
+ * billed by its true length. Since the duration rule rounds up, any
+ * period bills at least one day.
  */
 export function computeBilledDays(p: BookingPeriod): {
   nights: number
@@ -124,12 +127,6 @@ export function validateBookingPeriod(
     return { ok: false, message: 'Das Ende liegt vor dem Beginn.' }
   }
   const { nights, billedDays } = computeBilledDays(p)
-  if (nights < 1) {
-    return {
-      ok: false,
-      message: 'Die Reservierung muss mindestens eine Übernachtung umfassen.',
-    }
-  }
   const minStartDate = toVienna(nowUtcIso)
     .startOf('day')
     .add(BOOKING_MIN_LEAD_DAYS, 'day')

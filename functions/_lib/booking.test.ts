@@ -50,6 +50,14 @@ describe('computeBilledDays', () => {
     expectBilled(period('2026-08-01', '10:00', '2026-08-02', '10:00'), 1, 1)
   })
 
+  it('bills one day for a same-day reservation', () => {
+    expectBilled(period('2026-08-01', '14:00', '2026-08-01', '18:00'), 1, 0)
+  })
+
+  it('bills one day for a short morning slot ending before 10:00', () => {
+    expectBilled(period('2026-08-01', '07:00', '2026-08-01', '09:00'), 1, 0)
+  })
+
   it('bills nights plus late-checkout surcharge on longer stays', () => {
     // 3 nights, checkout 10:30 → 4 days.
     expectBilled(period('2026-08-01', '14:00', '2026-08-04', '10:30'), 4, 3)
@@ -76,14 +84,28 @@ describe('computeBilledDays', () => {
 })
 
 describe('validateBookingPeriod', () => {
-  it('rejects a same-day booking (no night)', () => {
+  it('accepts a same-day booking — an overnight stay is optional', () => {
     const result = validateBookingPeriod(
       period('2026-08-01', '14:00', '2026-08-01', '18:00'),
       NOW,
     )
     expect(result).toEqual({
+      ok: true,
+      nights: 0,
+      billed_days: 1,
+      start_at: '2026-08-01T12:00:00.000Z',
+      end_at: '2026-08-01T16:00:00.000Z',
+    })
+  })
+
+  it('rejects a zero-length period', () => {
+    const result = validateBookingPeriod(
+      period('2026-08-01', '14:00', '2026-08-01', '14:00'),
+      NOW,
+    )
+    expect(result).toEqual({
       ok: false,
-      message: 'Die Reservierung muss mindestens eine Übernachtung umfassen.',
+      message: 'Das Ende liegt vor dem Beginn.',
     })
   })
 

@@ -98,7 +98,7 @@ export const updateCalendarEventInputSchema = z.object({
 
 // ── Exclusive bookings ──────────────────────────────────────────────────────
 
-// The Statuten rules (lead time, overnight, billed days) live in
+// The Statuten rules (lead time, billed days) live in
 // `_lib/booking.ts` and run in the query layer — the contract only
 // validates field shapes.
 export const createBookingInputSchema = z.object({

@@ -533,7 +533,8 @@ export const calendar_events = sqliteTable('calendar_events', {
 })
 
 /**
- * An exclusive overnight reservation of the property. `start_at` /
+ * An exclusive reservation of the property, with or without an
+ * overnight stay. `start_at` /
  * `end_at` are normalized ISO-UTC instants (always written via dayjs
  * `.toISOString()`), so lexicographic comparison in SQL is a correct
  * instant comparison. Vienna wall times are derived via
