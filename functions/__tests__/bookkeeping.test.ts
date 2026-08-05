@@ -3,7 +3,9 @@ import {
   bankEntryConsistencyIssue,
   createBankEntryInputSchema,
   createExpenseInputSchema,
+  createMemberPaymentInputSchema,
   expenseConsistencyIssue,
+  memberPaymentConsistencyIssue,
 } from '../contracts/bookkeeping'
 
 const validExpense = {
@@ -65,6 +67,30 @@ describe('createExpenseInputSchema', () => {
     expect(withPayer.success).toBe(true)
   })
 
+  it('requires at least one member for a selected settlement', () => {
+    const withoutMembers = createExpenseInputSchema.safeParse({
+      ...validExpense,
+      settlement: 'selected',
+    })
+    expect(withoutMembers.success).toBe(false)
+    const withMembers = createExpenseInputSchema.safeParse({
+      ...validExpense,
+      settlement: 'selected',
+      debtor_user_ids: [2, 3],
+    })
+    expect(withMembers.success).toBe(true)
+  })
+
+  it('drops duplicate cost bearers so the split stays equal', () => {
+    const parsed = createExpenseInputSchema.safeParse({
+      ...validExpense,
+      settlement: 'selected',
+      debtor_user_ids: [2, 3, 2],
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.debtor_user_ids).toEqual([2, 3])
+  })
+
   it('requires a project name for project-type bills', () => {
     const withoutName = createExpenseInputSchema.safeParse({
       ...validExpense,
@@ -88,6 +114,8 @@ describe('expenseConsistencyIssue', () => {
         paid_from: 'member',
         paid_by_user_id: null,
         project_name: null,
+        settlement: 'verein',
+        debtor_count: 0,
       }),
     ).toMatch(/Mitglied/)
   })
@@ -99,6 +127,8 @@ describe('expenseConsistencyIssue', () => {
         paid_from: 'verein',
         paid_by_user_id: null,
         project_name: null,
+        settlement: 'verein',
+        debtor_count: 0,
       }),
     ).toMatch(/Projekt/)
   })
@@ -110,6 +140,8 @@ describe('expenseConsistencyIssue', () => {
         paid_from: 'verein',
         paid_by_user_id: null,
         project_name: null,
+        settlement: 'verein',
+        debtor_count: 0,
       }),
     ).toBeNull()
   })
@@ -154,6 +186,95 @@ describe('bankEntryConsistencyIssue', () => {
   it('passes an opening balance', () => {
     expect(
       bankEntryConsistencyIssue({ kind: 'opening', member_user_id: null }),
+    ).toBeNull()
+  })
+})
+
+describe('expenseConsistencyIssue for selected cost bearers', () => {
+  const base = {
+    type: 'expected' as const,
+    paid_from: 'verein' as const,
+    paid_by_user_id: null,
+    project_name: null,
+  }
+
+  it('flags an empty selection', () => {
+    expect(
+      expenseConsistencyIssue({
+        ...base,
+        settlement: 'selected',
+        debtor_count: 0,
+      }),
+    ).toMatch(/Mitglied/)
+  })
+
+  it('passes a non-empty selection', () => {
+    expect(
+      expenseConsistencyIssue({
+        ...base,
+        settlement: 'selected',
+        debtor_count: 2,
+      }),
+    ).toBeNull()
+  })
+
+  it('ignores the selection for the other settlements', () => {
+    expect(
+      expenseConsistencyIssue({
+        ...base,
+        settlement: 'split',
+        debtor_count: 0,
+      }),
+    ).toBeNull()
+  })
+})
+
+describe('createMemberPaymentInputSchema', () => {
+  const base = {
+    from_user_id: 2,
+    to_user_id: 3,
+    amount_cents: 2500,
+    payment_date: '2026-07-01',
+  }
+
+  it('accepts a payback between two members', () => {
+    expect(createMemberPaymentInputSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('rejects a payback to oneself', () => {
+    expect(
+      createMemberPaymentInputSchema.safeParse({ ...base, to_user_id: 2 })
+        .success,
+    ).toBe(false)
+  })
+
+  it('requires both members', () => {
+    expect(
+      createMemberPaymentInputSchema.safeParse({
+        ...base,
+        to_user_id: undefined,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a zero amount', () => {
+    expect(
+      createMemberPaymentInputSchema.safeParse({ ...base, amount_cents: 0 })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('memberPaymentConsistencyIssue', () => {
+  it('flags the same member on both sides', () => {
+    expect(
+      memberPaymentConsistencyIssue({ from_user_id: 2, to_user_id: 2 }),
+    ).toMatch(/sich selbst/)
+  })
+
+  it('passes two different members', () => {
+    expect(
+      memberPaymentConsistencyIssue({ from_user_id: 2, to_user_id: 3 }),
     ).toBeNull()
   })
 })

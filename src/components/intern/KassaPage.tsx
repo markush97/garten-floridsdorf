@@ -6,6 +6,7 @@ import type { SessionUser } from '~func/contracts/auth'
 import BankEntriesPanel from './BankEntriesPanel'
 import BudgetOverview from './BudgetOverview'
 import ExpenseSection from './ExpenseSection'
+import MemberPaymentsPanel from './MemberPaymentsPanel'
 import MemberShell from './MemberShell'
 
 export default function KassaPage() {
@@ -42,18 +43,23 @@ function KassaContent({ me }: { me: SessionUser }) {
       </div>
 
       <Tabs onValueChange={setTab} value={tab}>
-        <TabsList>
+        {/* Four tabs don't fit one mobile row — wrap instead of scrolling. */}
+        <TabsList className="max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
           <TabsTrigger value="overview">Übersicht</TabsTrigger>
           <TabsTrigger value="expenses">Rechnungen</TabsTrigger>
+          <TabsTrigger value="payments">Rückzahlungen</TabsTrigger>
           {me.is_kassier && (
             <TabsTrigger value="admin">Kassa-Verwaltung</TabsTrigger>
           )}
         </TabsList>
         <TabsContent value="overview">
-          <BudgetOverview />
+          <BudgetOverview me={me} />
         </TabsContent>
         <TabsContent value="expenses">
           <ExpenseSection me={me} />
+        </TabsContent>
+        <TabsContent value="payments">
+          <MemberPaymentsPanel me={me} />
         </TabsContent>
         {me.is_kassier && (
           <TabsContent value="admin">

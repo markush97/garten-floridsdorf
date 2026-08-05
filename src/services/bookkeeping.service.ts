@@ -5,11 +5,14 @@ import type {
   BankEntrySummary,
   CreateBankEntryInput,
   CreateExpenseInput,
+  CreateMemberPaymentInput,
   ExpenseSummary,
   KassaMember,
   KassaOverview,
+  MemberPaymentSummary,
   UpdateBankEntryInput,
   UpdateExpenseInput,
+  UpdateMemberPaymentInput,
 } from '~func/contracts/bookkeeping'
 
 function noSessionRetry(count: number, err: unknown): boolean {
@@ -48,6 +51,14 @@ export function useBankEntries(enabled: boolean) {
     queryKey: queryKeys.kassa.bankEntries,
     queryFn: () => apiClient<BankEntrySummary[]>('/kassa/bank-entries'),
     enabled,
+    retry: noSessionRetry,
+  })
+}
+
+export function useMemberPayments() {
+  return useQuery({
+    queryKey: queryKeys.kassa.memberPayments,
+    queryFn: () => apiClient<MemberPaymentSummary[]>('/kassa/member-payments'),
     retry: noSessionRetry,
   })
 }
@@ -158,6 +169,47 @@ export function useDeleteBankEntry() {
   return useMutation({
     mutationFn: (id: number) =>
       apiClient<{ ok: boolean }>(`/kassa/bank-entries/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useCreateMemberPayment() {
+  const invalidate = useInvalidateKassa()
+  return useMutation({
+    mutationFn: (data: CreateMemberPaymentInput) =>
+      apiClient<MemberPaymentSummary>('/kassa/member-payments', {
+        method: 'POST',
+        body: data,
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateMemberPayment() {
+  const invalidate = useInvalidateKassa()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number
+      data: UpdateMemberPaymentInput
+    }) =>
+      apiClient<MemberPaymentSummary>(`/kassa/member-payments/${id}`, {
+        method: 'PATCH',
+        body: data,
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteMemberPayment() {
+  const invalidate = useInvalidateKassa()
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiClient<{ ok: boolean }>(`/kassa/member-payments/${id}`, {
         method: 'DELETE',
       }),
     onSuccess: invalidate,

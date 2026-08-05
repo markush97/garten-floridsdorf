@@ -49,6 +49,7 @@ export const queryKeys = {
     expenses: ['kassa', 'expenses'] as const,
     members: ['kassa', 'members'] as const,
     bankEntries: ['kassa', 'bank-entries'] as const,
+    memberPayments: ['kassa', 'member-payments'] as const,
   },
   tasks: {
     all: ['tasks'] as const,

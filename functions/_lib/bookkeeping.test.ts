@@ -4,6 +4,7 @@ import {
   computeSplitShares,
   type LedgerBankEntry,
   type LedgerExpense,
+  type LedgerMemberPayment,
   type LedgerShare,
   type SplitMember,
 } from './bookkeeping'
@@ -80,6 +81,9 @@ describe('computeKassaOverview', () => {
     user_id: m.user_id,
     member_name: m.name,
     share_cents: 2500,
+    paid_from: 'member',
+    paid_by_user_id: 2,
+    paid_by_name: 'Bert',
   }))
   const bankEntries: LedgerBankEntry[] = [
     {
@@ -102,7 +106,14 @@ describe('computeKassaOverview', () => {
     },
   ]
 
-  const overview = computeKassaOverview(expenses, shares, bankEntries, 2)
+  const overview = computeKassaOverview(expenses, shares, bankEntries, [], 2)
+
+  /** "Anna->Bert" → open amount, for readable pair assertions. */
+  function pairs(result = overview): Map<string, number> {
+    return new Map(
+      result.debts.map((d) => [`${d.from.name}->${d.to.name}`, d.amount_cents]),
+    )
+  }
 
   it('computes the balance from bank entries minus Vereinskonto expenses', () => {
     // 200000 + 45000 − 8000 (reimbursement) − 12000 (only the Verein-paid bill)
@@ -111,6 +122,30 @@ describe('computeKassaOverview', () => {
 
   it('sums the total spend across all approved expenses', () => {
     expect(overview.total_expenses_cents).toBe(32000)
+  })
+
+  it('books every share as a debt towards whoever fronted the bill', () => {
+    // Bert fronted the split bill, so the other three owe him directly.
+    expect(pairs().get('Anna->Bert')).toBe(2500)
+    expect(pairs().get('Cara->Bert')).toBe(2500)
+    expect(pairs().get('Dora->Bert')).toBe(2500)
+    // Bert's own share cancels — no self-debt row.
+    expect(pairs().get('Bert->Bert')).toBeUndefined()
+  })
+
+  it('nets a reimbursement against what the Verein owes the payer', () => {
+    // Anna fronted 10000 for the Verein and got 8000 back.
+    expect(pairs().get('Vereinskassa->Anna')).toBe(2000)
+    expect(pairs().get('Anna->Vereinskassa')).toBeUndefined()
+  })
+
+  it('sorts the open payments by debtor name', () => {
+    expect(overview.debts.map((d) => d.from.name)).toEqual([
+      'Anna',
+      'Cara',
+      'Dora',
+      'Vereinskassa',
+    ])
   })
 
   it('computes each member net position (payer-included split)', () => {
@@ -124,8 +159,12 @@ describe('computeKassaOverview', () => {
     expect(byName.get('Dora')).toBe(-2500)
   })
 
-  it('orders positions so the largest amount owed by the Verein is first', () => {
+  it('orders positions so the largest amount to get back is first', () => {
     expect(overview.positions[0]?.name).toBe('Bert')
+  })
+
+  it('leaves the Vereinskassa out of the member positions', () => {
+    expect(overview.positions.map((p) => p.name)).not.toContain('Vereinskassa')
   })
 
   it('groups spend by category, type and cadence in enum order, dropping empties', () => {
@@ -171,8 +210,132 @@ describe('computeKassaOverview', () => {
           member_name: null,
         },
       ],
+      [],
       0,
     )
     expect(broke.balance_cents).toBe(-40000)
+  })
+})
+
+describe('computeKassaOverview with selected cost bearers', () => {
+  // Anna fronted 60,00 € for a project only Cara and Dora carry.
+  const expense: LedgerExpense = {
+    amount_cents: 6000,
+    type: 'project',
+    category: 'anbauflaeche',
+    cadence: 'one_time',
+    paid_from: 'member',
+    paid_by_user_id: 1,
+    paid_by_name: 'Anna',
+    settlement: 'selected',
+  }
+  const shares: LedgerShare[] = [
+    {
+      user_id: 3,
+      member_name: 'Cara',
+      share_cents: 3000,
+      paid_from: 'member',
+      paid_by_user_id: 1,
+      paid_by_name: 'Anna',
+    },
+    {
+      user_id: 4,
+      member_name: 'Dora',
+      share_cents: 3000,
+      paid_from: 'member',
+      paid_by_user_id: 1,
+      paid_by_name: 'Anna',
+    },
+  ]
+
+  function run(payments: LedgerMemberPayment[]) {
+    const result = computeKassaOverview([expense], shares, [], payments, 0)
+    return {
+      result,
+      pairs: new Map(
+        result.debts.map((d) => [
+          `${d.from.name}->${d.to.name}`,
+          d.amount_cents,
+        ]),
+      ),
+    }
+  }
+
+  it('charges only the selected members, each towards the payer', () => {
+    const { result, pairs } = run([])
+    expect(pairs.get('Cara->Anna')).toBe(3000)
+    expect(pairs.get('Dora->Anna')).toBe(3000)
+    expect(result.debts).toHaveLength(2)
+    const byName = new Map(result.positions.map((p) => [p.name, p.net_cents]))
+    expect(byName.get('Anna')).toBe(6000)
+    expect(byName.get('Bert')).toBeUndefined()
+  })
+
+  it('leaves the Vereinskonto balance untouched for a privately paid bill', () => {
+    expect(run([]).result.balance_cents).toBe(0)
+  })
+
+  it('reduces a debt by a partial payback', () => {
+    const { pairs } = run([
+      {
+        from_user_id: 3,
+        from_name: 'Cara',
+        to_user_id: 1,
+        to_name: 'Anna',
+        amount_cents: 1000,
+      },
+    ])
+    expect(pairs.get('Cara->Anna')).toBe(2000)
+  })
+
+  it('drops a debt that was paid back in full', () => {
+    const { result, pairs } = run([
+      {
+        from_user_id: 3,
+        from_name: 'Cara',
+        to_user_id: 1,
+        to_name: 'Anna',
+        amount_cents: 3000,
+      },
+    ])
+    expect(pairs.get('Cara->Anna')).toBeUndefined()
+    expect(result.debts).toHaveLength(1)
+    const byName = new Map(result.positions.map((p) => [p.name, p.net_cents]))
+    expect(byName.get('Cara')).toBeUndefined()
+    expect(byName.get('Anna')).toBe(3000)
+  })
+
+  it('flips the direction when a member pays back too much', () => {
+    const { pairs } = run([
+      {
+        from_user_id: 3,
+        from_name: 'Cara',
+        to_user_id: 1,
+        to_name: 'Anna',
+        amount_cents: 4000,
+      },
+    ])
+    expect(pairs.get('Cara->Anna')).toBeUndefined()
+    expect(pairs.get('Anna->Cara')).toBe(1000)
+  })
+
+  it('nets paybacks in both directions on the same pair', () => {
+    const { pairs } = run([
+      {
+        from_user_id: 3,
+        from_name: 'Cara',
+        to_user_id: 1,
+        to_name: 'Anna',
+        amount_cents: 2500,
+      },
+      {
+        from_user_id: 1,
+        from_name: 'Anna',
+        to_user_id: 3,
+        to_name: 'Cara',
+        amount_cents: 500,
+      },
+    ])
+    expect(pairs.get('Cara->Anna')).toBe(1000)
   })
 })

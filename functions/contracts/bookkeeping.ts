@@ -50,12 +50,16 @@ export const PAID_FROM_LABELS: Record<PaidFrom, string> = {
 }
 
 /** Who should ultimately bear the cost. */
-export const SETTLEMENT = ['verein', 'split'] as const
+export const SETTLEMENT = ['verein', 'split', 'selected'] as const
 export type Settlement = (typeof SETTLEMENT)[number]
 export const SETTLEMENT_LABELS: Record<Settlement, string> = {
   verein: 'Vereinskassa trägt',
   split: 'Auf alle aufgeteilt',
+  selected: 'Auf ausgewählte Mitglieder',
 }
+
+/** Display name of the Vereinskassa as a party in the debt ledger. */
+export const VEREIN_PARTY_NAME = 'Vereinskassa'
 
 export const EXPENSE_STATUSES = ['pending', 'approved', 'rejected'] as const
 export type ExpenseStatus = (typeof EXPENSE_STATUSES)[number]
@@ -97,6 +101,17 @@ const optionalShortText = z
 
 const memberIdSchema = z.number().int().positive().nullish()
 
+/**
+ * The members that bear the cost of a `settlement = 'selected'` bill.
+ * Duplicates are dropped so the equal split can't be skewed by
+ * sending the same member twice.
+ */
+const debtorIdsSchema = z
+  .array(z.number().int().positive())
+  .max(500, 'Zu viele Mitglieder ausgewählt.')
+  .transform((ids) => [...new Set(ids)])
+  .optional()
+
 // ── Expense (bill) input ─────────────────────────────────────────────────────
 
 /**
@@ -110,12 +125,17 @@ export function expenseConsistencyIssue(v: {
   paid_from: PaidFrom
   paid_by_user_id: number | null
   project_name: string | null
+  settlement: Settlement
+  debtor_count: number
 }): string | null {
   if (v.paid_from === 'member' && v.paid_by_user_id == null) {
     return 'Bitte angeben, welches Mitglied bezahlt hat.'
   }
   if (v.type === 'project' && !v.project_name) {
     return 'Bitte das Projekt benennen.'
+  }
+  if (v.settlement === 'selected' && v.debtor_count === 0) {
+    return 'Bitte mindestens ein Mitglied auswählen, das die Kosten trägt.'
   }
   return null
 }
@@ -135,6 +155,7 @@ const expenseFields = {
   paid_from: z.enum(PAID_FROM),
   paid_by_user_id: memberIdSchema,
   settlement: z.enum(SETTLEMENT),
+  debtor_user_ids: debtorIdsSchema,
 }
 
 export const createExpenseInputSchema = z
@@ -145,6 +166,8 @@ export const createExpenseInputSchema = z
       paid_from: v.paid_from,
       paid_by_user_id: v.paid_by_user_id ?? null,
       project_name: v.project_name ?? null,
+      settlement: v.settlement,
+      debtor_count: v.debtor_user_ids?.length ?? 0,
     })
     if (issue) ctx.addIssue({ code: 'custom', message: issue })
   })
@@ -162,6 +185,7 @@ export const updateExpenseInputSchema = z.object({
   paid_from: z.enum(PAID_FROM).optional(),
   paid_by_user_id: memberIdSchema,
   settlement: z.enum(SETTLEMENT).optional(),
+  debtor_user_ids: debtorIdsSchema,
 })
 
 export const rejectExpenseInputSchema = z.object({
@@ -204,17 +228,67 @@ export const updateBankEntryInputSchema = z.object({
   member_user_id: memberIdSchema,
 })
 
+// ── Member payment input (member pays another member back) ───────────────────
+
+export function memberPaymentConsistencyIssue(v: {
+  from_user_id: number
+  to_user_id: number
+}): string | null {
+  if (v.from_user_id === v.to_user_id) {
+    return 'Ein Mitglied kann nicht an sich selbst zurückzahlen.'
+  }
+  return null
+}
+
+export const createMemberPaymentInputSchema = z
+  .object({
+    from_user_id: z.number().int().positive(),
+    to_user_id: z.number().int().positive(),
+    amount_cents: amountCentsSchema,
+    payment_date: isoDateSchema,
+    description: optionalShortText,
+  })
+  .superRefine((v, ctx) => {
+    const issue = memberPaymentConsistencyIssue(v)
+    if (issue) ctx.addIssue({ code: 'custom', message: issue })
+  })
+
+// Re-checked on the merged row in the query layer, like the expense update.
+export const updateMemberPaymentInputSchema = z.object({
+  from_user_id: z.number().int().positive().optional(),
+  to_user_id: z.number().int().positive().optional(),
+  amount_cents: amountCentsSchema.optional(),
+  payment_date: isoDateSchema.optional(),
+  description: optionalShortText,
+})
+
 export type CreateExpenseInput = z.infer<typeof createExpenseInputSchema>
 export type UpdateExpenseInput = z.infer<typeof updateExpenseInputSchema>
 export type RejectExpenseInput = z.infer<typeof rejectExpenseInputSchema>
 export type CreateBankEntryInput = z.infer<typeof createBankEntryInputSchema>
 export type UpdateBankEntryInput = z.infer<typeof updateBankEntryInputSchema>
+export type CreateMemberPaymentInput = z.infer<
+  typeof createMemberPaymentInputSchema
+>
+export type UpdateMemberPaymentInput = z.infer<
+  typeof updateMemberPaymentInputSchema
+>
 
 // ── Response shapes ──────────────────────────────────────────────────────────
 
 /** A member option for the payer / reimbursement pickers. */
 export type KassaMember = {
   user_id: number
+  name: string
+}
+
+/**
+ * A member picked to bear part of a `settlement = 'selected'` bill.
+ * `user_id` is null once the account was deleted (the name snapshot
+ * keeps the row readable).
+ */
+export type ExpenseDebtor = {
+  user_id: number | null
   name: string
 }
 
@@ -232,6 +306,8 @@ export type ExpenseSummary = {
   paid_by_user_id: number | null
   paid_by_name: string | null
   settlement: Settlement
+  /** Only filled for `settlement = 'selected'`; empty otherwise. */
+  debtors: ExpenseDebtor[]
   status: ExpenseStatus
   has_receipt: boolean
   receipt_filename: string | null
@@ -256,6 +332,21 @@ export type BankEntrySummary = {
   created_at: string
 }
 
+/** One recorded payback from one member to another. */
+export type MemberPaymentSummary = {
+  id: number
+  from_user_id: number | null
+  from_name: string
+  to_user_id: number | null
+  to_name: string
+  amount_cents: number
+  payment_date: string
+  description: string | null
+  recorded_by_user_id: number | null
+  recorded_by_name: string
+  created_at: string
+}
+
 /** A grouped total for the budget viewer (by category / type / cadence). */
 export type GroupTotal = {
   key: string
@@ -264,14 +355,34 @@ export type GroupTotal = {
 }
 
 /**
- * A member's net position. `net_cents > 0` means the Verein owes the
- * member (they lent money); `< 0` means the member owes the Verein
- * (their share of split costs).
+ * A member's net position across all counterparties (the Vereinskassa
+ * and other members). `net_cents > 0` means the member gets money back
+ * (they lent more than they owe); `< 0` means they still have to pay.
  */
 export type MemberPosition = {
   user_id: number | null
   name: string
   net_cents: number
+}
+
+/**
+ * One side of an open payment. The Vereinskassa is a party of its own;
+ * for a member `user_id` is null once the account was deleted.
+ */
+export type DebtParty = {
+  kind: 'verein' | 'member'
+  user_id: number | null
+  name: string
+}
+
+/**
+ * An open payment between two parties, netted per pair: `from` still
+ * owes `to` this (always positive) amount.
+ */
+export type OutstandingDebt = {
+  from: DebtParty
+  to: DebtParty
+  amount_cents: number
 }
 
 /** Payload of `GET /kassa/overview` — the budget viewer. */
@@ -282,5 +393,7 @@ export type KassaOverview = {
   by_type: GroupTotal[]
   by_cadence: GroupTotal[]
   positions: MemberPosition[]
+  /** Sorted by debtor name, then by descending amount. */
+  debts: OutstandingDebt[]
   pending_count: number
 }

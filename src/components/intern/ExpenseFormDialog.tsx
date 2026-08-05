@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { IsoDateField } from '~/components/admin/form-ui'
 import { mergeReceiptFiles, ReceiptMergeError } from '~/lib/merge-receipts'
-import { parseEuroToCents } from '~/lib/money'
+import { formatEuro, parseEuroToCents } from '~/lib/money'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import {
   useCreateExpense,
@@ -115,6 +115,14 @@ function ExpenseForm({
   const [settlement, setSettlement] = useState<Settlement>(
     editing?.settlement ?? 'verein',
   )
+  // Cost bearers for the "selected" settlement. Members whose account was
+  // deleted have no id left, so they drop out of an edited selection.
+  const [debtorIds, setDebtorIds] = useState<number[]>(
+    () =>
+      editing?.debtors
+        .map((d) => d.user_id)
+        .filter((id): id is number => id !== null) ?? [],
+  )
   // Several files get merged into one PDF on submit (see mergeReceiptFiles).
   const [files, setFiles] = useState<File[]>([])
   const [isMerging, setIsMerging] = useState(false)
@@ -140,6 +148,12 @@ function ExpenseForm({
       toast.error('Bitte angeben, welches Mitglied bezahlt hat.')
       return
     }
+    if (settlement === 'selected' && debtorIds.length === 0) {
+      toast.error(
+        'Bitte mindestens ein Mitglied auswählen, das die Kosten trägt.',
+      )
+      return
+    }
 
     const payload = {
       description: description.trim(),
@@ -152,6 +166,7 @@ function ExpenseForm({
       paid_from: paidFrom,
       paid_by_user_id: paidFrom === 'member' ? Number(paidByUserId) : null,
       settlement,
+      debtor_user_ids: settlement === 'selected' ? debtorIds : [],
     }
 
     // Merge before saving so a failed merge doesn't leave a bill behind.
@@ -351,9 +366,20 @@ function ExpenseForm({
         </select>
         <p className="text-xs text-forest-700/60">
           „Auf alle aufgeteilt“ verteilt die Kosten zu gleichen Teilen auf alle
-          Mitglieder (inkl. bezahlender Person).
+          Mitglieder (inkl. bezahlender Person). „Auf ausgewählte Mitglieder“
+          teilt sie nur unter den gewählten Personen auf — sie zahlen ihren
+          Anteil an die Person zurück, die ausgelegt hat.
         </p>
       </div>
+
+      {settlement === 'selected' && (
+        <DebtorPicker
+          amountCents={parseEuroToCents(amount)}
+          members={members}
+          onChange={setDebtorIds}
+          selected={debtorIds}
+        />
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="exp-receipt">
@@ -439,10 +465,10 @@ function ExpenseForm({
 
       <DialogFooter>
         <Button
+          disabled={isPending}
           onClick={onDone}
           type="button"
           variant="outline"
-          disabled={isPending}
         >
           Abbrechen
         </Button>
@@ -457,5 +483,90 @@ function ExpenseForm({
         </Button>
       </DialogFooter>
     </form>
+  )
+}
+
+/**
+ * Picks the members that carry the cost of a bill. The per-head preview
+ * uses the amount typed so far, so the split is visible before saving.
+ */
+function DebtorPicker({
+  amountCents,
+  members,
+  onChange,
+  selected,
+}: {
+  amountCents: number | null
+  members: KassaMember[]
+  onChange: (ids: number[]) => void
+  selected: number[]
+}) {
+  const perHead =
+    amountCents !== null && selected.length > 0
+      ? Math.floor(amountCents / selected.length)
+      : null
+
+  function toggle(userId: number, checked: boolean) {
+    onChange(
+      checked ? [...selected, userId] : selected.filter((id) => id !== userId),
+    )
+  }
+
+  return (
+    <fieldset className="space-y-2 rounded-2xl border border-forest-900/12 bg-white/60 p-3">
+      <legend className="px-1 text-sm font-medium text-forest-900">
+        Wer zahlt zurück?
+      </legend>
+      {members.length === 0 ? (
+        <p className="text-sm text-forest-700/60">Keine Mitglieder gefunden.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => onChange(members.map((m) => m.user_id))}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Alle
+            </Button>
+            <Button
+              onClick={() => onChange([])}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Keine
+            </Button>
+            <span className="text-xs text-forest-700/60">
+              {selected.length === 0
+                ? 'Niemand ausgewählt'
+                : perHead !== null
+                  ? `${selected.length} ausgewählt · je ${formatEuro(perHead)}`
+                  : `${selected.length} ausgewählt`}
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {members.map((m) => {
+              const inputId = `exp-debtor-${m.user_id}`
+              return (
+                <li className="flex items-center gap-2" key={m.user_id}>
+                  <input
+                    checked={selected.includes(m.user_id)}
+                    className="size-4 accent-forest-700"
+                    id={inputId}
+                    onChange={(e) => toggle(m.user_id, e.target.checked)}
+                    type="checkbox"
+                  />
+                  <label className="text-sm text-forest-900" htmlFor={inputId}>
+                    {m.name}
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+    </fieldset>
   )
 }

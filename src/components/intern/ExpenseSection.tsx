@@ -160,6 +160,9 @@ function ExpenseCard({
             {PAID_FROM_LABELS[expense.paid_from]}
             {expense.paid_by_name && ` (${expense.paid_by_name})`} ·{' '}
             {SETTLEMENT_LABELS[expense.settlement]}
+            {expense.settlement === 'selected' &&
+              expense.debtors.length > 0 &&
+              `: ${expense.debtors.map((d) => d.name).join(', ')}`}
           </p>
           <p className="text-xs text-forest-700/50">
             Eingereicht von {expense.submitted_by_name}

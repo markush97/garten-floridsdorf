@@ -38,9 +38,11 @@ import {
 import {
   createBankEntryInputSchema,
   createExpenseInputSchema,
+  createMemberPaymentInputSchema,
   rejectExpenseInputSchema,
   updateBankEntryInputSchema,
   updateExpenseInputSchema,
+  updateMemberPaymentInputSchema,
 } from '../functions/contracts/bookkeeping'
 import {
   type CalendarBookingEntry,
@@ -121,19 +123,25 @@ import {
 import {
   approveExpense,
   canApproveExpenses,
+  canManageMemberPayment,
   createBankEntry,
   createExpense,
+  createMemberPayment,
   deleteBankEntry,
   deleteExpense,
+  deleteMemberPayment,
   findExpenseOrThrow,
+  findMemberPaymentOrThrow,
   getKassaOverview,
   listBankEntries,
   listExpenses,
   listMemberOptions,
+  listMemberPayments,
   rejectExpense,
   setExpenseReceipt,
   updateBankEntry,
   updateExpense,
+  updateMemberPayment,
 } from '../functions/db/queries/bookkeeping'
 import { getMergedCalendar } from '../functions/db/queries/calendar'
 import {
@@ -1766,6 +1774,82 @@ app.delete('/kassa/bank-entries/:id', requireAuth, async (c) => {
   const db = createDb(c.env.DB)
   await assertCanApprove(c, db)
   await deleteBankEntry(db, id)
+  return c.json({ ok: true })
+})
+
+// Paybacks between two members (Splitwise style). Every member sees them
+// all — the debt overview is shared anyway. A member may record a payback
+// they are part of; Kassiere and admins may record any, and only the
+// recorder (or a Kassier/admin) may change one afterwards.
+
+app.get('/kassa/member-payments', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listMemberPayments(db))
+})
+
+app.post('/kassa/member-payments', requireAuth, async (c) => {
+  const parsed = createMemberPaymentInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const involved =
+    session.userId !== null &&
+    (parsed.data.from_user_id === session.userId ||
+      parsed.data.to_user_id === session.userId)
+  if (!involved && !(await canApproveExpenses(db, session))) {
+    return c.json(
+      makeError(
+        'FORBIDDEN',
+        'Nur Kassier:innen dürfen Rückzahlungen zwischen anderen Mitgliedern erfassen.',
+      ),
+      403,
+    )
+  }
+  const row = await createMemberPayment(db, parsed.data, {
+    id: session.userId,
+    name: session.name,
+  })
+  return c.json(row, 201)
+})
+
+app.patch('/kassa/member-payments/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const parsed = updateMemberPaymentInputSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      makeError('VALIDATION_ERROR', zodErrorMessage(parsed.error)),
+      400,
+    )
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findMemberPaymentOrThrow(db, id)
+  if (!(await canManageMemberPayment(db, session, existing))) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  return c.json(await updateMemberPayment(db, id, parsed.data))
+})
+
+app.delete('/kassa/member-payments/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json(makeError('VALIDATION_ERROR', 'Ungültige ID'), 400)
+  }
+  const db = createDb(c.env.DB)
+  const session = c.get('session')
+  const existing = await findMemberPaymentOrThrow(db, id)
+  if (!(await canManageMemberPayment(db, session, existing))) {
+    return c.json(makeError('FORBIDDEN', 'Keine Berechtigung'), 403)
+  }
+  await deleteMemberPayment(db, id)
   return c.json({ ok: true })
 })
 

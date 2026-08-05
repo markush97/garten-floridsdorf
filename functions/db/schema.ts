@@ -581,9 +581,10 @@ export const calendar_feed_tokens = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Kassa / bookkeeping: uploaded bills (expenses), the per-bill split shares
-// snapshotted at approval, and the manual Vereinskonto movements (opening
-// balance, income, reimbursements). All amounts are integer euro cents.
+// Kassa / bookkeeping: uploaded bills (expenses), the members picked to bear a
+// bill, the per-bill split shares snapshotted at approval, the manual
+// Vereinskonto movements (opening balance, income, reimbursements) and the
+// member-to-member paybacks. All amounts are integer euro cents.
 // ---------------------------------------------------------------------------
 
 /**
@@ -591,11 +592,12 @@ export const calendar_feed_tokens = sqliteTable(
  * stays `pending` until a Kassier (or admin) approves or rejects it.
  * Only `approved` rows affect the ledger. `paid_from` records who
  * actually paid (the Vereinskonto or a member privately), while
- * `settlement` records who should bear the cost (the Vereinskassa, or
- * split equally across all members). The optional receipt scan lives
- * in R2 under `receipt_r2_key`; the payer/submitter names are
- * snapshotted so the row survives user deletion (same pattern as
- * documents and bookings).
+ * `settlement` records who should bear the cost: the Vereinskassa,
+ * split equally across all members, or split across the members
+ * selected in `expense_debtors`. The optional receipt scan lives in R2
+ * under `receipt_r2_key`; the payer/submitter names are snapshotted so
+ * the row survives user deletion (same pattern as documents and
+ * bookings).
  */
 export const expenses = sqliteTable('expenses', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -624,7 +626,9 @@ export const expenses = sqliteTable('expenses', {
     onDelete: 'set null',
   }),
   paid_by_name: text('paid_by_name'),
-  settlement: text('settlement', { enum: ['verein', 'split'] }).notNull(),
+  settlement: text('settlement', {
+    enum: ['verein', 'split', 'selected'],
+  }).notNull(),
   status: text('status', { enum: ['pending', 'approved', 'rejected'] })
     .notNull()
     .default('pending'),
@@ -649,12 +653,34 @@ export const expenses = sqliteTable('expenses', {
 })
 
 /**
- * The split of a `settlement = 'split'` expense across members,
- * materialized when the bill is approved so the per-member debt is
- * frozen at that moment — later membership changes must not shift
- * historical shares. `share_cents` sums back to the expense amount
- * (the remainder is assigned deterministically). The member name is
- * snapshotted so the row survives user deletion.
+ * The members picked to bear a `settlement = 'selected'` bill, stored
+ * from the moment the bill is created (the shares themselves are only
+ * materialized on approval). Rows are replaced wholesale when the
+ * selection is edited and are irrelevant for the other settlements.
+ */
+export const expense_debtors = sqliteTable(
+  'expense_debtors',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    expense_id: integer('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    user_id: integer('user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    member_name: text('member_name').notNull(),
+  },
+  (t) => [uniqueIndex('expense_debtors_unique').on(t.expense_id, t.user_id)],
+)
+
+/**
+ * The split of a `settlement = 'split'` or `'selected'` expense across
+ * members, materialized when the bill is approved so the per-member
+ * debt is frozen at that moment — later membership changes must not
+ * shift historical shares. `share_cents` sums back to the expense
+ * amount (the remainder is assigned deterministically). The member name
+ * is snapshotted so the row survives user deletion. The creditor is the
+ * bill's payer: the member who fronted it, or the Vereinskassa.
  */
 export const expense_shares = sqliteTable(
   'expense_shares',
@@ -694,6 +720,36 @@ export const bank_entries = sqliteTable('bank_entries', {
     onDelete: 'set null',
   }),
   member_name: text('member_name'),
+  recorded_by_user_id: integer('recorded_by_user_id').references(
+    () => users.id,
+    { onDelete: 'set null' },
+  ),
+  recorded_by_name: text('recorded_by_name').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+/**
+ * A payback from one member directly to another (Splitwise style):
+ * someone who owes a share of a bill a fellow member fronted hands
+ * over money outside the Vereinskonto. Never touches the Vereinskonto
+ * balance — it only settles the debt between the two members.
+ * `amount_cents` is always positive; both names are snapshotted so the
+ * row survives user deletion.
+ */
+export const member_payments = sqliteTable('member_payments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  from_user_id: integer('from_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  from_name: text('from_name').notNull(),
+  to_user_id: integer('to_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  to_name: text('to_name').notNull(),
+  amount_cents: integer('amount_cents').notNull(),
+  payment_date: text('payment_date').notNull(),
+  description: text('description'),
   recorded_by_user_id: integer('recorded_by_user_id').references(
     () => users.id,
     { onDelete: 'set null' },
@@ -827,6 +883,7 @@ export type CalendarFeedTokenRow = typeof calendar_feed_tokens.$inferSelect
 export type ExpenseRow = typeof expenses.$inferSelect
 export type ExpenseShareRow = typeof expense_shares.$inferSelect
 export type BankEntryRow = typeof bank_entries.$inferSelect
+export type MemberPaymentRow = typeof member_payments.$inferSelect
 export type TaskSeriesRow = typeof task_series.$inferSelect
 export type TaskRow = typeof tasks.$inferSelect
 export type TaskSubtaskRow = typeof task_subtasks.$inferSelect

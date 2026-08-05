@@ -1,5 +1,6 @@
 import {
   type BankEntryKind,
+  type DebtParty,
   EXPENSE_CADENCE_LABELS,
   EXPENSE_CADENCES,
   EXPENSE_CATEGORIES,
@@ -12,8 +13,10 @@ import {
   type GroupTotal,
   type KassaOverview,
   type MemberPosition,
+  type OutstandingDebt,
   type PaidFrom,
   type Settlement,
+  VEREIN_PARTY_NAME,
 } from '../contracts/bookkeeping'
 
 /**
@@ -35,11 +38,18 @@ export type LedgerExpense = {
   settlement: Settlement
 }
 
-/** A materialized split share of an approved expense. */
+/**
+ * A materialized split share of an approved expense, carrying the
+ * bill's payer so the debt can be booked against the right creditor:
+ * the member who fronted the money, or the Vereinskassa.
+ */
 export type LedgerShare = {
   user_id: number | null
   member_name: string
   share_cents: number
+  paid_from: PaidFrom
+  paid_by_user_id: number | null
+  paid_by_name: string | null
 }
 
 /** A manual Vereinskonto movement. */
@@ -48,6 +58,15 @@ export type LedgerBankEntry = {
   amount_cents: number
   member_user_id: number | null
   member_name: string | null
+}
+
+/** A payback handed from one member directly to another. */
+export type LedgerMemberPayment = {
+  from_user_id: number | null
+  from_name: string
+  to_user_id: number | null
+  to_name: string
+  amount_cents: number
 }
 
 /** A member of the Verein, used as the pool for a split. */
@@ -87,26 +106,77 @@ export function computeSplitShares(
   })
 }
 
-/** Stable position-map key: the user id, or a name for deleted users. */
-function positionKey(userId: number | null, name: string): string {
-  return userId == null ? `name:${name}` : `id:${userId}`
+/** The Vereinskassa as a party of the debt ledger. */
+const VEREIN: DebtParty = {
+  kind: 'verein',
+  user_id: null,
+  name: VEREIN_PARTY_NAME,
+}
+
+function memberParty(userId: number | null, name: string): DebtParty {
+  return { kind: 'member', user_id: userId, name }
+}
+
+/** Stable party key: the Verein, a user id, or a name for deleted users. */
+function partyKey(party: DebtParty): string {
+  if (party.kind === 'verein') return 'verein'
+  return party.user_id == null ? `name:${party.name}` : `id:${party.user_id}`
+}
+
+/** The netted balance between two parties: `a` owes `b` `cents` (may be < 0). */
+type PairBalance = { a: DebtParty; b: DebtParty; cents: number }
+
+/**
+ * Books `amount` cents of obligation from `debtor` to `creditor` into
+ * the per-pair netting map. A *payment* is booked as a negative amount
+ * in the direction of the debt it settles, so money handed over and
+ * debt incurred cancel out on the same pair. Self-debts (a member's own
+ * share of a bill they fronted) are dropped.
+ */
+function owe(
+  pairs: Map<string, PairBalance>,
+  debtor: DebtParty,
+  creditor: DebtParty,
+  amount: number,
+): void {
+  const debtorKey = partyKey(debtor)
+  const creditorKey = partyKey(creditor)
+  if (debtorKey === creditorKey || amount === 0) return
+  // Orient the pair deterministically so both directions land on one row.
+  const forward = debtorKey < creditorKey
+  const [a, b] = forward ? [debtor, creditor] : [creditor, debtor]
+  const key = `${partyKey(a)}|${partyKey(b)}`
+  const existing = pairs.get(key)
+  const delta = forward ? amount : -amount
+  if (existing) {
+    existing.cents += delta
+  } else {
+    pairs.set(key, { a, b, cents: delta })
+  }
 }
 
 /**
  * Computes the whole budget-viewer payload from approved expenses,
- * their materialized split shares, and the manual bank entries.
+ * their materialized split shares, the manual bank entries and the
+ * member-to-member paybacks.
  *
  * Balance:  Σ bank entries (opening/income +, reimbursement −)
  *           − Σ approved expenses paid from the Vereinskonto.
- * Position: what the Verein owes each member (positive) — a member
- *           who fronted money is owed it; a split share is a debt the
- *           member carries; reimbursements settle a debt; an income
- *           attributed to a member records them paying in on account.
+ * Debts:    netted per party pair (Splitwise style). Whoever fronted a
+ *           bill is the creditor — a member privately, otherwise the
+ *           Vereinskassa; every materialized share is a debt of that
+ *           member towards the creditor. A privately paid bill the
+ *           Vereinskassa bears is a debt of the Verein towards the
+ *           payer. Reimbursements, member income entries and paybacks
+ *           settle those debts.
+ * Position: each member's net across all counterparties (positive =
+ *           gets money back).
  */
 export function computeKassaOverview(
   expenses: LedgerExpense[],
   shares: LedgerShare[],
   bankEntries: LedgerBankEntry[],
+  memberPayments: LedgerMemberPayment[],
   pendingCount: number,
 ): KassaOverview {
   let balance = 0
@@ -118,42 +188,66 @@ export function computeKassaOverview(
     if (e.paid_from === 'verein') balance -= e.amount_cents
   }
 
-  const positions = new Map<
-    string,
-    { user_id: number | null; name: string; net_cents: number }
-  >()
-  const bump = (userId: number | null, name: string, delta: number) => {
-    const key = positionKey(userId, name)
-    const existing = positions.get(key)
-    if (existing) {
-      existing.net_cents += delta
-      // Prefer a real name over an empty snapshot if one shows up later.
-      if (!existing.name && name) existing.name = name
-    } else {
-      positions.set(key, { user_id: userId, name, net_cents: delta })
-    }
-  }
+  const pairs = new Map<string, PairBalance>()
 
   for (const e of expenses) {
-    if (e.paid_from === 'member' && e.paid_by_name) {
-      bump(e.paid_by_user_id, e.paid_by_name, e.amount_cents)
+    // A member fronted a bill the Vereinskassa bears → the Verein owes
+    // them the full amount. Split bills are covered by their shares.
+    if (
+      e.paid_from === 'member' &&
+      e.paid_by_name &&
+      e.settlement === 'verein'
+    ) {
+      owe(
+        pairs,
+        VEREIN,
+        memberParty(e.paid_by_user_id, e.paid_by_name),
+        e.amount_cents,
+      )
     }
   }
   for (const s of shares) {
-    bump(s.user_id, s.member_name, -s.share_cents)
+    const creditor =
+      s.paid_from === 'member' && s.paid_by_name
+        ? memberParty(s.paid_by_user_id, s.paid_by_name)
+        : VEREIN
+    owe(pairs, memberParty(s.user_id, s.member_name), creditor, s.share_cents)
   }
   for (const entry of bankEntries) {
     if (!entry.member_name) continue
+    const member = memberParty(entry.member_user_id, entry.member_name)
     if (entry.kind === 'reimbursement') {
-      bump(entry.member_user_id, entry.member_name, -entry.amount_cents)
+      // The Verein paid the member out.
+      owe(pairs, VEREIN, member, -entry.amount_cents)
     } else if (entry.kind === 'income') {
-      bump(entry.member_user_id, entry.member_name, entry.amount_cents)
+      // The member paid into the Vereinskonto.
+      owe(pairs, member, VEREIN, -entry.amount_cents)
     }
   }
+  for (const p of memberPayments) {
+    owe(
+      pairs,
+      memberParty(p.from_user_id, p.from_name),
+      memberParty(p.to_user_id, p.to_name),
+      -p.amount_cents,
+    )
+  }
 
-  const positionList: MemberPosition[] = [...positions.values()]
-    .filter((p) => p.net_cents !== 0)
-    .sort((a, b) => b.net_cents - a.net_cents)
+  const debts: OutstandingDebt[] = [...pairs.values()]
+    .filter((pair) => pair.cents !== 0)
+    .map((pair) =>
+      pair.cents > 0
+        ? { from: pair.a, to: pair.b, amount_cents: pair.cents }
+        : { from: pair.b, to: pair.a, amount_cents: -pair.cents },
+    )
+    .sort(
+      (x, y) =>
+        x.from.name.localeCompare(y.from.name) ||
+        y.amount_cents - x.amount_cents ||
+        x.to.name.localeCompare(y.to.name),
+    )
+
+  const positionList = buildPositions(debts)
 
   return {
     balance_cents: balance,
@@ -177,8 +271,39 @@ export function computeKassaOverview(
       EXPENSE_CADENCE_LABELS,
     ),
     positions: positionList,
+    debts,
     pending_count: pendingCount,
   }
+}
+
+/**
+ * Rolls the pairwise debts up into one net figure per member (the
+ * Vereinskassa is not a member, so it is left out): positive means the
+ * member gets money back, negative that they still have to pay.
+ */
+function buildPositions(debts: OutstandingDebt[]): MemberPosition[] {
+  const positions = new Map<string, MemberPosition>()
+  const bump = (party: DebtParty, delta: number) => {
+    if (party.kind === 'verein') return
+    const key = partyKey(party)
+    const existing = positions.get(key)
+    if (existing) {
+      existing.net_cents += delta
+    } else {
+      positions.set(key, {
+        user_id: party.user_id,
+        name: party.name,
+        net_cents: delta,
+      })
+    }
+  }
+  for (const debt of debts) {
+    bump(debt.from, -debt.amount_cents)
+    bump(debt.to, debt.amount_cents)
+  }
+  return [...positions.values()]
+    .filter((p) => p.net_cents !== 0)
+    .sort((a, b) => b.net_cents - a.net_cents)
 }
 
 /** Sum expense amounts per group key, in the enum's order, dropping empties. */
