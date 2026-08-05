@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { cn } from '~/lib/ui-utils'
 import { Button } from '~/ui/button'
+import { DatePicker } from '~/ui/date-picker'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
 
@@ -93,6 +94,37 @@ export function toIsoDate(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+/**
+ * `DatePicker` for forms that keep their dates as the `YYYY-MM-DD`
+ * strings the API speaks. Use this instead of `<input type="date">`,
+ * which renders in the browser's OS locale (mm/dd/yyyy in en-US)
+ * regardless of the page's `lang="de"`. Empty string means "no date";
+ * `required` keeps a chosen date from being deselected.
+ */
+export function IsoDateField({
+  value,
+  onChange,
+  placeholder,
+  required = false,
+}: {
+  value: string
+  onChange: (iso: string) => void
+  placeholder?: string
+  required?: boolean
+}) {
+  return (
+    <DatePicker
+      // Match the text inputs it sits next to instead of the default
+      // button chrome (h-11 like SELECT, since Button fixes its height).
+      className={cn(FIELD, 'h-11')}
+      onChange={(date) => onChange(date ? toIsoDate(date) : '')}
+      placeholder={placeholder}
+      required={required}
+      value={parseIsoDate(value)}
+    />
+  )
 }
 
 /**

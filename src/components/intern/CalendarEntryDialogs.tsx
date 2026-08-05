@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { formatTimeDigits, IsoDateField } from '~/components/admin/form-ui'
 import {
   useCreateBooking,
   useCreateCalendarEvent,
@@ -155,23 +156,14 @@ function CalendarEventForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="cal-start-date">Von</Label>
-          <Input
-            className={FIELD}
-            id="cal-start-date"
-            onChange={(e) => setStartDate(e.target.value)}
-            required
-            type="date"
-            value={startDate}
-          />
+          <Label>Von</Label>
+          <IsoDateField onChange={setStartDate} required value={startDate} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="cal-end-date">Bis (optional)</Label>
-          <Input
-            className={FIELD}
-            id="cal-end-date"
-            onChange={(e) => setEndDate(e.target.value)}
-            type="date"
+          <Label>Bis (optional)</Label>
+          <IsoDateField
+            onChange={setEndDate}
+            placeholder="Kein Datum"
             value={endDate}
           />
         </div>
@@ -180,8 +172,10 @@ function CalendarEventForm({
           <Input
             className={FIELD}
             id="cal-start-time"
-            onChange={(e) => setStartTime(e.target.value)}
-            type="time"
+            inputMode="numeric"
+            maxLength={5}
+            onChange={(e) => setStartTime(formatTimeDigits(e.target.value))}
+            placeholder="HH:mm"
             value={startTime}
           />
         </div>
@@ -190,8 +184,10 @@ function CalendarEventForm({
           <Input
             className={FIELD}
             id="cal-end-time"
-            onChange={(e) => setEndTime(e.target.value)}
-            type="time"
+            inputMode="numeric"
+            maxLength={5}
+            onChange={(e) => setEndTime(formatTimeDigits(e.target.value))}
+            placeholder="HH:mm"
             value={endTime}
           />
         </div>
@@ -302,46 +298,36 @@ function BookingForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="bk-start-date">Anreise</Label>
-          <Input
-            className={FIELD}
-            id="bk-start-date"
-            onChange={(e) => setStartDate(e.target.value)}
-            required
-            type="date"
-            value={startDate}
-          />
+          <Label>Anreise</Label>
+          <IsoDateField onChange={setStartDate} required value={startDate} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="bk-start-time">Uhrzeit</Label>
           <Input
             className={FIELD}
             id="bk-start-time"
-            onChange={(e) => setStartTime(e.target.value)}
+            inputMode="numeric"
+            maxLength={5}
+            onChange={(e) => setStartTime(formatTimeDigits(e.target.value))}
+            placeholder="HH:mm"
             required
-            type="time"
             value={startTime}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="bk-end-date">Abreise</Label>
-          <Input
-            className={FIELD}
-            id="bk-end-date"
-            onChange={(e) => setEndDate(e.target.value)}
-            required
-            type="date"
-            value={endDate}
-          />
+          <Label>Abreise</Label>
+          <IsoDateField onChange={setEndDate} required value={endDate} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="bk-end-time">Uhrzeit</Label>
           <Input
             className={FIELD}
             id="bk-end-time"
-            onChange={(e) => setEndTime(e.target.value)}
+            inputMode="numeric"
+            maxLength={5}
+            onChange={(e) => setEndTime(formatTimeDigits(e.target.value))}
+            placeholder="HH:mm"
             required
-            type="time"
             value={endTime}
           />
         </div>

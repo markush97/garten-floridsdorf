@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { IsoDateField } from '~/components/admin/form-ui'
 import { formatEuro, parseEuroToCents } from '~/lib/money'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import { cn } from '~/lib/ui-utils'
@@ -261,15 +262,8 @@ function BankEntryForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="be-date">Datum</Label>
-          <Input
-            className={FIELD}
-            id="be-date"
-            onChange={(e) => setEntryDate(e.target.value)}
-            required
-            type="date"
-            value={entryDate}
-          />
+          <Label>Datum</Label>
+          <IsoDateField onChange={setEntryDate} required value={entryDate} />
         </div>
       </div>
 

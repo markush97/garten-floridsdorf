@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, type SQL } from 'drizzle-orm'
 import type { Session } from '../../_lib/auth'
 import {
   computeKassaOverview,
@@ -57,8 +57,29 @@ export async function canApproveExpenses(
 
 // ── Members ──────────────────────────────────────────────────────────────────
 
-/** Activated members, for the payer / reimbursement pickers and split pool. */
+/**
+ * Activated members — the pool a split bill is divided among. Only
+ * activated accounts carry debts, so this stays filtered (see
+ * `approveExpense`). For the payer / reimbursement pickers use
+ * `listMemberOptions` instead.
+ */
 export async function listMembers(db: Database): Promise<KassaMember[]> {
+  return selectMembers(db, isNotNull(users.activated_at))
+}
+
+/**
+ * Every member on file, for the payer / reimbursement pickers. Not
+ * filtered by activation: someone who was invited but has never logged
+ * in can still have paid for something the Kassa needs to record.
+ */
+export async function listMemberOptions(db: Database): Promise<KassaMember[]> {
+  return selectMembers(db)
+}
+
+async function selectMembers(
+  db: Database,
+  where?: SQL | undefined,
+): Promise<KassaMember[]> {
   const rows = await db
     .select({
       id: users.id,
@@ -66,7 +87,7 @@ export async function listMembers(db: Database): Promise<KassaMember[]> {
       last_name: users.last_name,
     })
     .from(users)
-    .where(isNotNull(users.activated_at))
+    .where(where)
     .orderBy(asc(users.last_name), asc(users.first_name))
     .all()
   return rows.map((r) => ({

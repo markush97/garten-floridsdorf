@@ -1,5 +1,9 @@
+import { Delete02Icon, ImageAdd02Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { IsoDateField } from '~/components/admin/form-ui'
+import { mergeReceiptFiles, ReceiptMergeError } from '~/lib/merge-receipts'
 import { parseEuroToCents } from '~/lib/money'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import {
@@ -111,9 +115,11 @@ function ExpenseForm({
   const [settlement, setSettlement] = useState<Settlement>(
     editing?.settlement ?? 'verein',
   )
-  const [file, setFile] = useState<File | null>(null)
+  // Several files get merged into one PDF on submit (see mergeReceiptFiles).
+  const [files, setFiles] = useState<File[]>([])
+  const [isMerging, setIsMerging] = useState(false)
 
-  const isPending = isCreating || isUpdating || isUploading
+  const isPending = isCreating || isUpdating || isUploading || isMerging
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -148,12 +154,30 @@ function ExpenseForm({
       settlement,
     }
 
+    // Merge before saving so a failed merge doesn't leave a bill behind.
+    let receipt: File | null = null
+    if (files.length > 0) {
+      setIsMerging(true)
+      try {
+        receipt = await mergeReceiptFiles(files, expenseDate)
+      } catch (err) {
+        toast.error(
+          err instanceof ReceiptMergeError
+            ? err.message
+            : 'Belege konnten nicht zusammengefügt werden.',
+        )
+        return
+      } finally {
+        setIsMerging(false)
+      }
+    }
+
     try {
       const saved = editing
         ? await updateExpense({ id: editing.id, data: payload })
         : await createExpense(payload)
-      if (file) {
-        await uploadReceipt({ id: saved.id, file })
+      if (receipt) {
+        await uploadReceipt({ id: saved.id, file: receipt })
       }
       toast.success(
         editing ? 'Rechnung aktualisiert.' : 'Rechnung hochgeladen.',
@@ -203,13 +227,10 @@ function ExpenseForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="exp-date">Datum</Label>
-          <Input
-            className={FIELD}
-            id="exp-date"
-            onChange={(e) => setExpenseDate(e.target.value)}
+          <Label>Datum</Label>
+          <IsoDateField
+            onChange={setExpenseDate}
             required
-            type="date"
             value={expenseDate}
           />
         </div>
@@ -338,13 +359,77 @@ function ExpenseForm({
         <Label htmlFor="exp-receipt">
           Beleg {editing?.has_receipt ? '(ersetzen, optional)' : '(optional)'}
         </Label>
+        {/* The list below is the source of truth, so the input is cleared
+            after every pick — that also keeps re-picking the same file
+            firing `change`, and hides the browser's English file text. */}
         <input
           accept="image/*,application/pdf"
-          className="block w-full text-sm text-forest-700 file:mr-3 file:rounded-full file:border-0 file:bg-forest-900/8 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-forest-900"
+          className="sr-only"
           id="exp-receipt"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          multiple
+          onChange={(e) => {
+            const picked = Array.from(e.target.files ?? [])
+            if (picked.length > 0) setFiles((prev) => [...prev, ...picked])
+            e.target.value = ''
+          }}
           type="file"
         />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => document.getElementById('exp-receipt')?.click()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={ImageAdd02Icon}
+              size={14}
+              strokeWidth={1.6}
+            />
+            {files.length > 0 ? 'Weitere hinzufügen' : 'Fotos oder PDFs wählen'}
+          </Button>
+          <span className="text-xs text-forest-700/60">
+            {files.length === 0
+              ? 'Nichts ausgewählt'
+              : files.length === 1
+                ? '1 Datei'
+                : `${files.length} Dateien → 1 PDF`}
+          </span>
+        </div>
+        <p className="text-xs text-forest-700/60">
+          Passt eine Rechnung nicht auf ein Foto: mehrere Fotos auswählen, sie
+          werden in dieser Reihenfolge zu einem PDF zusammengefügt.
+        </p>
+        {files.length > 0 && (
+          <ol className="space-y-1">
+            {files.map((f, i) => (
+              <li
+                className="flex items-center gap-2 text-sm text-forest-900"
+                key={`${f.name}-${f.size}-${f.lastModified}`}
+              >
+                <span className="text-forest-700/60">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <Button
+                  aria-label={`${f.name} entfernen`}
+                  onClick={() =>
+                    setFiles((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  <HugeiconsIcon
+                    aria-hidden="true"
+                    icon={Delete02Icon}
+                    size={16}
+                    strokeWidth={1.6}
+                  />
+                </Button>
+              </li>
+            ))}
+          </ol>
+        )}
         {editing?.has_receipt && (
           <p className="text-xs text-forest-700/60">
             Aktueller Beleg: {editing.receipt_filename}
@@ -362,11 +447,13 @@ function ExpenseForm({
           Abbrechen
         </Button>
         <Button disabled={isPending} type="submit">
-          {isPending
-            ? 'Wird gespeichert …'
-            : editing
-              ? 'Speichern'
-              : 'Hochladen'}
+          {isMerging
+            ? 'Belege werden zusammengefügt …'
+            : isPending
+              ? 'Wird gespeichert …'
+              : editing
+                ? 'Speichern'
+                : 'Hochladen'}
         </Button>
       </DialogFooter>
     </form>

@@ -12,6 +12,8 @@ type DatePickerProps = {
   onChange: (date: Date | undefined) => void
   placeholder?: string
   disabled?: boolean
+  /** Ignore deselection so the field can never become empty. */
+  required?: boolean
   className?: string
 }
 
@@ -20,6 +22,7 @@ function DatePicker({
   onChange,
   placeholder = 'Datum wählen',
   disabled = false,
+  required = false,
   className,
 }: DatePickerProps) {
   return (
@@ -52,7 +55,10 @@ function DatePicker({
         <Calendar
           locale={de}
           mode="single"
-          onSelect={onChange}
+          onSelect={(date) => {
+            if (date === undefined && required) return
+            onChange(date)
+          }}
           selected={value}
         />
       </PopoverContent>

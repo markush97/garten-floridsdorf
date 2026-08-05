@@ -129,7 +129,7 @@ import {
   getKassaOverview,
   listBankEntries,
   listExpenses,
-  listMembers,
+  listMemberOptions,
   rejectExpense,
   setExpenseReceipt,
   updateBankEntry,
@@ -1536,7 +1536,7 @@ app.get('/kassa/overview', requireAuth, async (c) => {
 
 app.get('/kassa/members', requireAuth, async (c) => {
   const db = createDb(c.env.DB)
-  return c.json(await listMembers(db))
+  return c.json(await listMemberOptions(db))
 })
 
 app.get('/kassa/expenses', requireAuth, async (c) => {

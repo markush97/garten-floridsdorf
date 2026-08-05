@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { IsoDateField } from '~/components/admin/form-ui'
 import { parseEuroToCents } from '~/lib/money'
 import { useUpdateTaskSeries } from '~/services/task.service'
 import { Button } from '~/ui/button'
@@ -235,14 +236,8 @@ function SeriesForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="series-next">Nächste Fälligkeit</Label>
-        <Input
-          className={FIELD}
-          id="series-next"
-          onChange={(e) => setNextDate(e.target.value)}
-          type="date"
-          value={nextDate}
-        />
+        <Label>Nächste Fälligkeit</Label>
+        <IsoDateField onChange={setNextDate} required value={nextDate} />
       </div>
 
       <DialogFooter>

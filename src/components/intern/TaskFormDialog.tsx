@@ -2,6 +2,7 @@ import { Delete02Icon, PlusSignIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { IsoDateField } from '~/components/admin/form-ui'
 import { formatEuro, parseEuroToCents } from '~/lib/money'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import { useCreateTask, useUpdateTask } from '~/services/task.service'
@@ -262,12 +263,10 @@ function TaskForm({
         </div>
         {!recurring && (
           <div className="space-y-1.5">
-            <Label htmlFor="task-due">Fällig am (optional)</Label>
-            <Input
-              className={FIELD}
-              id="task-due"
-              onChange={(e) => setDueDate(e.target.value)}
-              type="date"
+            <Label>Fällig am (optional)</Label>
+            <IsoDateField
+              onChange={setDueDate}
+              placeholder="Kein Datum"
               value={dueDate}
             />
           </div>
@@ -318,12 +317,10 @@ function TaskForm({
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="task-start">Erste Fälligkeit</Label>
-                  <Input
-                    className={FIELD}
-                    id="task-start"
-                    onChange={(e) => setStartDate(e.target.value)}
-                    type="date"
+                  <Label>Erste Fälligkeit</Label>
+                  <IsoDateField
+                    onChange={setStartDate}
+                    required
                     value={startDate}
                   />
                 </div>
