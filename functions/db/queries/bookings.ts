@@ -230,7 +230,7 @@ export async function updateBooking(
   id: number,
   input: UpdateBookingInput,
   nowUtcIso: string,
-  opts: { skipLeadTime?: boolean } = {},
+  opts: { skipLeadTime?: boolean; owner?: { id: number; name: string } } = {},
 ): Promise<BookingRow> {
   const existing = await findBookingOrThrow(db, id)
   if (existing.status === 'cancelled') {
@@ -259,6 +259,11 @@ export async function updateBooking(
   }
   if (input.note !== undefined) {
     updates.note = normalizeOptional(input.note)
+  }
+  // The name snapshot travels with the id (see the `bookings` table).
+  if (opts.owner) {
+    updates.user_id = opts.owner.id
+    updates.user_name = opts.owner.name
   }
   if (periodChanged) {
     // Full re-validation, exactly like a fresh booking — a note-only

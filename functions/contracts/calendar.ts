@@ -118,6 +118,9 @@ export const updateBookingInputSchema = z.object({
   end_date: isoDateSchema.optional(),
   end_time: timeOfDaySchema.optional(),
   note: optionalShortText,
+  // Hand the reservation to another member — admins only, enforced in
+  // the route (same as on create).
+  for_user_id: z.number().int().positive().nullish(),
 })
 
 // ── Merged calendar response ────────────────────────────────────────────────

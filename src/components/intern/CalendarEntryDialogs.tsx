@@ -4,6 +4,7 @@ import { formatTimeDigits, IsoDateField } from '~/components/admin/form-ui'
 import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import {
   useCalendarMembers,
+  useCancelBooking,
   useCreateBooking,
   useCreateCalendarEvent,
   useUpdateBooking,
@@ -26,6 +27,7 @@ import type {
   CalendarBookingEntry,
   CalendarEventEntry,
 } from '~func/contracts/calendar'
+import { canManage } from './calendar-ui'
 import { FIELD, SELECT, TEXTAREA } from './task-ui'
 
 // ── Member calendar event ────────────────────────────────────────────────────
@@ -259,10 +261,11 @@ function BookingForm({
     useCreateBooking()
   const { mutateAsync: updateBooking, isPending: isUpdating } =
     useUpdateBooking()
+  const { mutateAsync: cancelBooking, isPending: isCancelling } =
+    useCancelBooking()
 
-  // Admins may book in someone else's name and are not bound by the
-  // Statuten lead time; the owner of an existing reservation stays as
-  // recorded.
+  // Admins may reserve in someone else's name, hand a reservation over
+  // to another member, and are not bound by the Statuten lead time.
   const isAdmin = me.role === 'admin'
   // Members can only start `BOOKING_MIN_LEAD_DAYS` out, so offer the
   // earliest allowed day instead of running them into the rule on
@@ -278,16 +281,25 @@ function BookingForm({
   const [endTime, setEndTime] = useState(editing?.end_time ?? '18:00')
   const [note, setNote] = useState(editing?.note ?? '')
   const tooSoon = !isAdmin && startDate < earliest
-  const { data: members = [] } = useCalendarMembers(isAdmin && !editing)
+  const { data: members = [] } = useCalendarMembers(isAdmin)
+  // Defaults to the current owner when editing, to me when creating.
   const [forUserId, setForUserId] = useState(
-    me.user_id != null ? String(me.user_id) : '',
+    editing?.user_id != null
+      ? String(editing.user_id)
+      : me.user_id != null && !editing
+        ? String(me.user_id)
+        : '',
   )
+  // Owner and creator may cancel; a member only before it has started
+  // (the server enforces the same rule).
+  const canCancel =
+    editing !== null && (isAdmin || canManage(me, editing.user_id))
 
-  const isPending = isCreating || isUpdating
+  const isPending = isCreating || isUpdating || isCancelling
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const bookFor = isAdmin && !editing && forUserId ? Number(forUserId) : null
+    const bookFor = isAdmin && forUserId ? Number(forUserId) : null
     const payload = {
       start_date: startDate,
       start_time: startTime,
@@ -312,6 +324,20 @@ function BookingForm({
     }
   }
 
+  async function handleCancel() {
+    if (!editing) return
+    if (!confirm('Diese Reservierung stornieren?')) return
+    try {
+      await cancelBooking(editing.id)
+      toast.success('Reservierung storniert.')
+      onDone()
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Stornieren fehlgeschlagen.',
+      )
+    }
+  }
+
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <DialogHeader>
@@ -324,7 +350,7 @@ function BookingForm({
         </DialogDescription>
       </DialogHeader>
 
-      {isAdmin && !editing && (
+      {isAdmin ? (
         <div className="space-y-1.5">
           <Label htmlFor="bk-for">Reservieren für</Label>
           <select
@@ -341,15 +367,17 @@ function BookingForm({
             ))}
           </select>
           <p className="text-xs text-forest-700/60">
-            Als Admin kannst du die Anlage auch im Namen eines anderen Mitglieds
-            reservieren.
+            {editing
+              ? `Derzeit auf ${editing.user_name}. Als Admin kannst du die Reservierung einem anderen Mitglied zuordnen.`
+              : 'Als Admin kannst du die Anlage auch im Namen eines anderen Mitglieds reservieren.'}
           </p>
         </div>
-      )}
-      {editing && (
-        <p className="text-sm text-forest-700/70">
-          Reservierung von {editing.user_name}.
-        </p>
+      ) : (
+        editing && (
+          <p className="text-sm text-forest-700/70">
+            Reservierung von {editing.user_name}.
+          </p>
+        )
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -412,18 +440,37 @@ function BookingForm({
         />
       </div>
 
-      <DialogFooter>
-        <Button
-          disabled={isPending}
-          onClick={onDone}
-          type="button"
-          variant="outline"
-        >
-          Abbrechen
-        </Button>
-        <Button disabled={isPending} type="submit">
-          {isPending ? 'Wird gespeichert …' : editing ? 'Speichern' : 'Anlegen'}
-        </Button>
+      <DialogFooter className="sm:justify-between">
+        {canCancel ? (
+          <Button
+            className="text-beet-700 sm:mr-auto"
+            disabled={isPending}
+            onClick={handleCancel}
+            type="button"
+            variant="ghost"
+          >
+            {isCancelling ? 'Wird storniert …' : 'Reservierung stornieren'}
+          </Button>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-2">
+          <Button
+            disabled={isPending}
+            onClick={onDone}
+            type="button"
+            variant="outline"
+          >
+            Abbrechen
+          </Button>
+          <Button disabled={isPending} type="submit">
+            {isPending
+              ? 'Wird gespeichert …'
+              : editing
+                ? 'Speichern'
+                : 'Anlegen'}
+          </Button>
+        </div>
       </DialogFooter>
     </form>
   )

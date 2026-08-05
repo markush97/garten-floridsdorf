@@ -1331,8 +1331,24 @@ app.patch('/calendar/bookings/:id', requireAuth, async (c) => {
       400,
     )
   }
+  let owner: { id: number; name: string } | undefined
+  const nextOwnerId = parsed.data.for_user_id
+  if (nextOwnerId != null && nextOwnerId !== before.user_id) {
+    if (session.role !== 'admin') {
+      return c.json(
+        makeError(
+          'FORBIDDEN',
+          'Nur Admins dürfen eine Reservierung übertragen.',
+        ),
+        403,
+      )
+    }
+    const target = await findUserByIdOrThrow(db, nextOwnerId)
+    owner = { id: target.id, name: `${target.first_name} ${target.last_name}` }
+  }
   const row = await updateBooking(db, id, parsed.data, nowUtc(), {
     skipLeadTime: session.role === 'admin',
+    owner,
   })
   const periodChanged =
     row.start_at !== before.start_at || row.end_at !== before.end_at
