@@ -45,7 +45,7 @@ export default function InvitePage({ token }: Props) {
       <div className="w-full max-w-sm space-y-6 rounded-[1.5rem] bg-white/75 p-8 shadow-[0_22px_45px_rgba(31,61,43,0.08)] ring-1 ring-inset ring-white/40 backdrop-blur">
         <div className="space-y-1 text-center">
           <img
-            alt="SV Beet & Bewegung"
+            alt="Bewegung im Grünen in Jedlesee"
             className="mx-auto h-14 w-14 mix-blend-multiply"
             src="/brand/icon.png"
           />

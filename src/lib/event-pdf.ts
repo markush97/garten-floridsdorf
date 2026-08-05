@@ -477,7 +477,7 @@ export function buildPrintDocument(ctx: PdfContext): string {
   <body>
     <article class="event-pdf-root">
       <header class="cover">
-        <p class="cover-eyebrow">SV Beet &amp; Bewegung</p>
+        <p class="cover-eyebrow">Sport- und Grünflächenpflegeverein Bewegung im Grünen in Jedlesee</p>
         ${sections.cover.body}
       </header>
       ${tocHtml ? `<section class="toc"><h2>Inhalt</h2><ol>${tocHtml}</ol></section>` : ''}

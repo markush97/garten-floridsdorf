@@ -70,7 +70,7 @@ export default function LoginPage({ magicError }: Props) {
         <div className="space-y-1 text-center">
           <Link to="/">
             <img
-              alt="SV Beet & Bewegung"
+              alt="Bewegung im Grünen in Jedlesee"
               className="mx-auto h-14 w-14 mix-blend-multiply"
               src="/brand/icon.png"
             />

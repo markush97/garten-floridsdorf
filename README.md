@@ -1,6 +1,6 @@
-# SV Beet & Bewegung
+# Sport- und Grünflächenpflegeverein Bewegung im Grünen in Jedlesee
 
-<img src="public/brand/logo.png" alt="SV Beet & Bewegung Logo" width="180" />
+<img src="public/brand/logo.png" alt="Bewegung im Grünen in Jedlesee Logo" width="180" />
 
 Family calendar, date polling and doodle scheduling for two families and their shared garden in Floridsdorf, Vienna.
 

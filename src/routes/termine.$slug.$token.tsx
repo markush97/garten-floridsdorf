@@ -68,7 +68,7 @@ function SharedEventPage() {
           to="/"
         >
           <img
-            alt="SV Beet & Bewegung"
+            alt="Bewegung im Grünen in Jedlesee"
             className="h-9 w-9 mix-blend-multiply"
             src="/brand/icon.png"
           />

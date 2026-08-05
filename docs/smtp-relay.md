@@ -158,7 +158,7 @@ pnpm wrangler secret put SMTP_RELAY_TOKEN --env production
 shared secret that nginx checks.
 
 `EMAIL_FROM` is optional; the Worker defaults to
-`SV Beet & Bewegung <anmeldung@beetbewegung.at>`.
+`Bewegung im Grünen in Jedlesee <anmeldung@beetbewegung.at>`.
 
 For local dev the values come from `.dev.vars` (`pnpm dev` picks
 them up automatically); with no relay configured the Worker logs
@@ -174,7 +174,7 @@ X-SMTP-Token: <SMTP_RELAY_TOKEN>
 Content-Type: application/json
 
 {
-  "from":    "SV Beet & Bewegung <anmeldung@beetbewegung.at>",
+  "from":    "Bewegung im Grünen in Jedlesee <anmeldung@beetbewegung.at>",
   "to":      "user@example.com",
   "subject": "Dein Anmeldelink",
   "text":    "Mit diesem Link meldest du dich an: ..."
@@ -196,7 +196,7 @@ Status codes:
 curl -sS -X POST https://mail-relay.beetbewegung.at/send \
   -H "X-SMTP-Token: $SMTP_RELAY_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"from":"SV Beet & Bewegung <anmeldung@beetbewegung.at>",
+  -d '{"from":"Bewegung im Grünen in Jedlesee <anmeldung@beetbewegung.at>",
         "to":"you@gmail.com",
         "subject":"smoke test",
         "text":"hi from the relay"}'
