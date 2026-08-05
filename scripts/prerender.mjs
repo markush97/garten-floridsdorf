@@ -4,7 +4,9 @@ import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { chromium } from 'playwright'
 
-const distDir = resolve('dist')
+// The Cloudflare Vite plugin splits the build: the static site lands in
+// `dist/client`, the worker bundle next to it in `dist/<worker-name>`.
+const distDir = resolve('dist', 'client')
 const indexPath = join(distDir, 'index.html')
 const port = 4567
 
