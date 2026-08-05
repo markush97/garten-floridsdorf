@@ -126,14 +126,20 @@ export async function findConflictingVereinstermine(
   })
 }
 
-/** Statuten validation + conflict checks shared by create and update. */
+/**
+ * Statuten validation + conflict checks shared by create and update.
+ * `skipLeadTime` is set for admins (see `validateBookingPeriod`); the
+ * overlap and Vereinstermin checks apply to everyone.
+ */
 async function assertBookablePeriod(
   db: Database,
   period: BookingPeriod,
   nowUtcIso: string,
-  opts: { excludeId?: number } = {},
+  opts: { excludeId?: number; skipLeadTime?: boolean } = {},
 ): Promise<{ start_at: string; end_at: string; billed_days: number }> {
-  const validated = validateBookingPeriod(period, nowUtcIso)
+  const validated = validateBookingPeriod(period, nowUtcIso, {
+    skipLeadTime: opts.skipLeadTime,
+  })
   if (!validated.ok) {
     throw new AppError('VALIDATION_ERROR', validated.message, 400)
   }
@@ -176,8 +182,11 @@ export async function createBooking(
   note: string | null | undefined,
   booker: { id: number | null; name: string },
   nowUtcIso: string,
+  opts: { skipLeadTime?: boolean } = {},
 ): Promise<BookingRow> {
-  const checked = await assertBookablePeriod(db, period, nowUtcIso)
+  const checked = await assertBookablePeriod(db, period, nowUtcIso, {
+    skipLeadTime: opts.skipLeadTime,
+  })
   const now = nowUtc()
   const inserted = await db
     .insert(bookings)
@@ -221,6 +230,7 @@ export async function updateBooking(
   id: number,
   input: UpdateBookingInput,
   nowUtcIso: string,
+  opts: { skipLeadTime?: boolean } = {},
 ): Promise<BookingRow> {
   const existing = await findBookingOrThrow(db, id)
   if (existing.status === 'cancelled') {
@@ -256,6 +266,7 @@ export async function updateBooking(
     // 7-day lead window.
     const checked = await assertBookablePeriod(db, mergedPeriod, nowUtcIso, {
       excludeId: id,
+      skipLeadTime: opts.skipLeadTime,
     })
     updates.start_at = checked.start_at
     updates.end_at = checked.end_at

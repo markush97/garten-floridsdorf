@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { formatTimeDigits, IsoDateField } from '~/components/admin/form-ui'
+import { DEFAULT_TIMEZONE, dayjs } from '~/lib/timezone'
 import {
   useCalendarMembers,
   useCreateBooking,
@@ -19,6 +20,7 @@ import {
 } from '~/ui/dialog'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
+import { BOOKING_MIN_LEAD_DAYS, earliestBookableDate } from '~func/_lib/booking'
 import type { SessionUser } from '~func/contracts/auth'
 import type {
   CalendarBookingEntry,
@@ -258,16 +260,24 @@ function BookingForm({
   const { mutateAsync: updateBooking, isPending: isUpdating } =
     useUpdateBooking()
 
-  const [startDate, setStartDate] = useState(editing?.start_date ?? defaultDate)
+  // Admins may book in someone else's name and are not bound by the
+  // Statuten lead time; the owner of an existing reservation stays as
+  // recorded.
+  const isAdmin = me.role === 'admin'
+  // Members can only start `BOOKING_MIN_LEAD_DAYS` out, so offer the
+  // earliest allowed day instead of running them into the rule on
+  // submit.
+  const earliest = earliestBookableDate(new Date().toISOString())
+  const firstDate = isAdmin || defaultDate >= earliest ? defaultDate : earliest
+
+  const [startDate, setStartDate] = useState(editing?.start_date ?? firstDate)
   const [startTime, setStartTime] = useState(editing?.start_time ?? '14:00')
-  const [endDate, setEndDate] = useState(editing?.end_date ?? defaultDate)
+  const [endDate, setEndDate] = useState(editing?.end_date ?? firstDate)
   // Defaults to a same-day reservation — an overnight stay is optional,
   // for one just move the end date forward.
   const [endTime, setEndTime] = useState(editing?.end_time ?? '18:00')
   const [note, setNote] = useState(editing?.note ?? '')
-  // Admins may book in someone else's name; the owner of an existing
-  // reservation stays as recorded.
-  const isAdmin = me.role === 'admin'
+  const tooSoon = !isAdmin && startDate < earliest
   const { data: members = [] } = useCalendarMembers(isAdmin && !editing)
   const [forUserId, setForUserId] = useState(
     me.user_id != null ? String(me.user_id) : '',
@@ -378,6 +388,18 @@ function BookingForm({
           />
         </div>
       </div>
+
+      <p className="text-xs text-forest-700/60">
+        {isAdmin
+          ? `Mitglieder müssen mindestens ${BOOKING_MIN_LEAD_DAYS} Tage im Voraus reservieren – als Admin darfst du auch kurzfristig oder rückwirkend eintragen.`
+          : `Reservierungen müssen mindestens ${BOOKING_MIN_LEAD_DAYS} Tage im Voraus erfolgen.`}
+      </p>
+      {tooSoon && (
+        <p className="text-xs text-beet-700">
+          Frühester möglicher Beginn:{' '}
+          {dayjs(earliest).tz(DEFAULT_TIMEZONE).format('DD.MM.YYYY')}.
+        </p>
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="bk-note">Notiz (optional)</Label>

@@ -101,14 +101,32 @@ export type BookingValidation =
   | { ok: false; message: string }
 
 /**
+ * Earliest start date a member may reserve, as a Vienna wall date.
+ * Exported so the booking dialog can offer it instead of running the
+ * member into the lead-time rule on submit.
+ */
+export function earliestBookableDate(nowUtcIso: string): string {
+  return toVienna(nowUtcIso)
+    .startOf('day')
+    .add(BOOKING_MIN_LEAD_DAYS, 'day')
+    .format('YYYY-MM-DD')
+}
+
+/**
  * Validates a booking period against the Statuten rules. Returns
  * German messages ready for an `AppError` on the server or inline
  * display in the booking dialog. `nowUtcIso` is a parameter so the
  * lead-time rule is testable.
+ *
+ * `skipLeadTime` lifts the lead-time rule for admins, who record
+ * reservations on behalf of members — often short-term or after the
+ * fact. The period rules and the conflict checks around this function
+ * still apply to them.
  */
 export function validateBookingPeriod(
   p: BookingPeriod,
   nowUtcIso: string,
+  { skipLeadTime = false }: { skipLeadTime?: boolean } = {},
 ): BookingValidation {
   if (
     !isRealDate(p.start_date) ||
@@ -127,11 +145,7 @@ export function validateBookingPeriod(
     return { ok: false, message: 'Das Ende liegt vor dem Beginn.' }
   }
   const { nights, billedDays } = computeBilledDays(p)
-  const minStartDate = toVienna(nowUtcIso)
-    .startOf('day')
-    .add(BOOKING_MIN_LEAD_DAYS, 'day')
-    .format('YYYY-MM-DD')
-  if (p.start_date < minStartDate) {
+  if (!skipLeadTime && p.start_date < earliestBookableDate(nowUtcIso)) {
     return {
       ok: false,
       message: `Reservierungen müssen mindestens ${BOOKING_MIN_LEAD_DAYS} Tage im Voraus erfolgen.`,

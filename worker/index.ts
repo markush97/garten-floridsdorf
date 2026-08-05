@@ -1281,7 +1281,11 @@ app.post('/calendar/bookings', requireAuth, async (c) => {
       name: `${target.first_name} ${target.last_name}`,
     }
   }
-  const row = await createBooking(db, period, note, booker, nowUtc())
+  const row = await createBooking(db, period, note, booker, nowUtc(), {
+    // Admins record reservations for members, sometimes short-term or
+    // after the fact — the Statuten lead time is a member rule.
+    skipLeadTime: session.role === 'admin',
+  })
   c.executionCtx.waitUntil(
     notifyCalendarChange(
       db,
@@ -1327,7 +1331,9 @@ app.patch('/calendar/bookings/:id', requireAuth, async (c) => {
       400,
     )
   }
-  const row = await updateBooking(db, id, parsed.data, nowUtc())
+  const row = await updateBooking(db, id, parsed.data, nowUtc(), {
+    skipLeadTime: session.role === 'admin',
+  })
   const periodChanged =
     row.start_at !== before.start_at || row.end_at !== before.end_at
   if (periodChanged) {
