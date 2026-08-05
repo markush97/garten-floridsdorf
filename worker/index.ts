@@ -252,10 +252,12 @@ import {
 import {
   createUser,
   deleteUser,
+  findUserByIdOrThrow,
   findUserBySlugOrThrow,
   findUserCredentials,
   getProfileOrThrow,
   listAllUsers,
+  listMemberNames,
   updatePassword,
   updateProfile,
   updateUser,
@@ -1234,6 +1236,12 @@ app.delete('/calendar/events/:id', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+/** Member names for the reservation picker (see `listMemberNames`). */
+app.get('/calendar/members', requireAuth, async (c) => {
+  const db = createDb(c.env.DB)
+  return c.json(await listMemberNames(db))
+})
+
 app.post('/calendar/bookings', requireAuth, async (c) => {
   const session = c.get('session')
   const body = await c.req.json()
@@ -1245,14 +1253,27 @@ app.post('/calendar/bookings', requireAuth, async (c) => {
     )
   }
   const db = createDb(c.env.DB)
-  const { note, ...period } = parsed.data
-  const row = await createBooking(
-    db,
-    period,
-    note,
-    { id: session.userId, name: session.name },
-    nowUtc(),
-  )
+  const { note, for_user_id, ...period } = parsed.data
+  // Admins may reserve in another member's name; everyone else only
+  // for themselves.
+  let booker = { id: session.userId, name: session.name }
+  if (for_user_id != null && for_user_id !== session.userId) {
+    if (session.role !== 'admin') {
+      return c.json(
+        makeError(
+          'FORBIDDEN',
+          'Nur Admins dürfen für andere Mitglieder reservieren.',
+        ),
+        403,
+      )
+    }
+    const target = await findUserByIdOrThrow(db, for_user_id)
+    booker = {
+      id: target.id,
+      name: `${target.first_name} ${target.last_name}`,
+    }
+  }
+  const row = await createBooking(db, period, note, booker, nowUtc())
   c.executionCtx.waitUntil(
     notifyCalendarChange(
       db,

@@ -11,6 +11,7 @@ import type {
   CalendarBookingEntry,
   CalendarEventEntry,
   CalendarFeedTokenStatus,
+  CalendarMember,
   CalendarResponse,
   CreateBookingInput,
   CreateCalendarEventInput,
@@ -18,6 +19,19 @@ import type {
   UpdateBookingInput,
   UpdateCalendarEventInput,
 } from '~func/contracts/calendar'
+
+/** Every member on file, for the "reserve for" picker (admins only). */
+export function useCalendarMembers(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.calendar.members,
+    queryFn: () => apiClient<CalendarMember[]>('/calendar/members'),
+    enabled,
+    retry: (count, err) => {
+      if ((err as { status?: number }).status === 401) return false
+      return count < 1
+    },
+  })
+}
 
 /**
  * Keyed by month, fetching the padded grid range — the range is a

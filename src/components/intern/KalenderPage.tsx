@@ -177,6 +177,7 @@ function KalenderContent({ me }: { me: SessionUser }) {
       <BookingDialog
         defaultDate={defaultDate}
         editing={bookingEditing}
+        me={me}
         onOpenChange={setBookingOpen}
         open={bookingOpen}
       />

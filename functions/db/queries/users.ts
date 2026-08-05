@@ -43,6 +43,30 @@ export async function listAllUsers(db: Database) {
     .all()
 }
 
+/**
+ * Name-only list of every member on file, for pickers that name a
+ * member without needing their account (e.g. an admin reserving in
+ * someone else's name). Not filtered by activation: a member who
+ * never signs in still uses the garden.
+ */
+export async function listMemberNames(
+  db: Database,
+): Promise<{ user_id: number; name: string }[]> {
+  const rows = await db
+    .select({
+      id: users.id,
+      first_name: users.first_name,
+      last_name: users.last_name,
+    })
+    .from(users)
+    .orderBy(asc(users.last_name), asc(users.first_name))
+    .all()
+  return rows.map((r) => ({
+    user_id: r.id,
+    name: `${r.first_name} ${r.last_name}`,
+  }))
+}
+
 export async function findUserBySlugOrThrow(db: Database, slug: string) {
   const user = await db
     .select(publicUserColumns)

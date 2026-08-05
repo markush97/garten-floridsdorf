@@ -107,6 +107,9 @@ export const createBookingInputSchema = z.object({
   end_date: isoDateSchema,
   end_time: timeOfDaySchema,
   note: optionalShortText,
+  // Reserve in another member's name — admins only, enforced in the
+  // route. Null/absent books for the signed-in member.
+  for_user_id: z.number().int().positive().nullish(),
 })
 
 export const updateBookingInputSchema = z.object({
@@ -190,6 +193,12 @@ export type CalendarEventEntry = z.infer<typeof calendarEventEntrySchema>
 export type CalendarBookingEntry = z.infer<typeof calendarBookingEntrySchema>
 export type CalendarEntry = z.infer<typeof calendarEntrySchema>
 export type CalendarResponse = z.infer<typeof calendarResponseSchema>
+
+/** A member option for the "reserve for" picker. */
+export type CalendarMember = {
+  user_id: number
+  name: string
+}
 
 // ── Personal iCal feed token ────────────────────────────────────────────────
 

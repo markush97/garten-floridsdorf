@@ -38,6 +38,7 @@ export const queryKeys = {
   calendar: {
     all: ['calendar'] as const,
     month: (monat: string) => ['calendar', 'month', monat] as const,
+    members: ['calendar', 'members'] as const,
   },
   profile: {
     me: ['profile', 'me'] as const,

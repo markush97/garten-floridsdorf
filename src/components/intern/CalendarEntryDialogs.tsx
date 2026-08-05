@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { formatTimeDigits, IsoDateField } from '~/components/admin/form-ui'
 import {
+  useCalendarMembers,
   useCreateBooking,
   useCreateCalendarEvent,
   useUpdateBooking,
@@ -18,11 +19,12 @@ import {
 } from '~/ui/dialog'
 import { Input } from '~/ui/input'
 import { Label } from '~/ui/label'
+import type { SessionUser } from '~func/contracts/auth'
 import type {
   CalendarBookingEntry,
   CalendarEventEntry,
 } from '~func/contracts/calendar'
-import { FIELD, TEXTAREA } from './task-ui'
+import { FIELD, SELECT, TEXTAREA } from './task-ui'
 
 // ── Member calendar event ────────────────────────────────────────────────────
 
@@ -217,11 +219,13 @@ export function BookingDialog({
   onOpenChange,
   editing,
   defaultDate,
+  me,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   editing: CalendarBookingEntry | null
   defaultDate: string
+  me: SessionUser
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -230,6 +234,7 @@ export function BookingDialog({
           defaultDate={defaultDate}
           editing={editing}
           key={editing?.id ?? `new-${defaultDate}`}
+          me={me}
           onDone={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -240,10 +245,12 @@ export function BookingDialog({
 function BookingForm({
   editing,
   defaultDate,
+  me,
   onDone,
 }: {
   editing: CalendarBookingEntry | null
   defaultDate: string
+  me: SessionUser
   onDone: () => void
 }) {
   const { mutateAsync: createBooking, isPending: isCreating } =
@@ -258,17 +265,26 @@ function BookingForm({
   // for one just move the end date forward.
   const [endTime, setEndTime] = useState(editing?.end_time ?? '18:00')
   const [note, setNote] = useState(editing?.note ?? '')
+  // Admins may book in someone else's name; the owner of an existing
+  // reservation stays as recorded.
+  const isAdmin = me.role === 'admin'
+  const { data: members = [] } = useCalendarMembers(isAdmin && !editing)
+  const [forUserId, setForUserId] = useState(
+    me.user_id != null ? String(me.user_id) : '',
+  )
 
   const isPending = isCreating || isUpdating
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const bookFor = isAdmin && !editing && forUserId ? Number(forUserId) : null
     const payload = {
       start_date: startDate,
       start_time: startTime,
       end_date: endDate,
       end_time: endTime,
       note: note.trim() || null,
+      for_user_id: bookFor,
     }
     try {
       if (editing) {
@@ -297,6 +313,34 @@ function BookingForm({
           die Statuten-Regeln für Vorlauf und Abrechnung.
         </DialogDescription>
       </DialogHeader>
+
+      {isAdmin && !editing && (
+        <div className="space-y-1.5">
+          <Label htmlFor="bk-for">Reservieren für</Label>
+          <select
+            className={SELECT}
+            id="bk-for"
+            onChange={(e) => setForUserId(e.target.value)}
+            value={forUserId}
+          >
+            <option value="">Mich selbst</option>
+            {members.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-forest-700/60">
+            Als Admin kannst du die Anlage auch im Namen eines anderen Mitglieds
+            reservieren.
+          </p>
+        </div>
+      )}
+      {editing && (
+        <p className="text-sm text-forest-700/70">
+          Reservierung von {editing.user_name}.
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
