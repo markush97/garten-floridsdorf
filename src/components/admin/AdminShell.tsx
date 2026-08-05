@@ -3,7 +3,7 @@ import { cn } from '~/lib/ui-utils'
 import { useLogout } from '~/services/auth.service'
 
 type AdminNavItem = {
-  to: '/admin/polls' | '/admin/users' | '/admin/events' | '/intern'
+  to: '/admin/polls' | '/admin/users' | '/admin/events'
   label: string
 }
 
@@ -11,7 +11,6 @@ const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   { to: '/admin/polls', label: 'Terminabstimmungen' },
   { to: '/admin/events', label: 'Termine' },
   { to: '/admin/users', label: 'Benutzer' },
-  { to: '/intern', label: 'Dokumente' },
 ] as const
 
 type AdminShellProps = {
@@ -60,6 +59,14 @@ function AdminShell({ children }: AdminShellProps) {
           })}
         </nav>
         <div className="flex items-center gap-3">
+          {/* The counterpart to the member shell's "Admin" link: Kalender,
+              Kassa, Aufgaben and Dokumente all live over there. */}
+          <Link
+            className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-semibold text-forest-700/80 transition hover:bg-cream-50/80 hover:text-forest-900 sm:px-4"
+            to="/intern"
+          >
+            Mitgliederbereich
+          </Link>
           <Link className="text-xs text-forest-700/60 underline" to="/">
             Zur Startseite
           </Link>
