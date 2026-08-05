@@ -7,7 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*"]
+# `/einladung/*` needs the worker to inject its own link preview into the
+# SPA shell (chat apps only read the served HTML, they never run our JS).
+run_worker_first = ["/api/*", "/einladung/*"]
 
 [[d1_databases]]
 binding = "DB"

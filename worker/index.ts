@@ -27,6 +27,11 @@ import {
   buildEventIcal,
   ICAL_CONTENT_TYPE,
 } from '../functions/_lib/ical'
+import {
+  applyLinkPreview,
+  INVITE_PREVIEW,
+  stripPrerenderedRoot,
+} from '../functions/_lib/link-preview'
 import { hashPassword, verifyPassword } from '../functions/_lib/password'
 import { hashToken, isValidTokenShape } from '../functions/_lib/token'
 import {
@@ -276,6 +281,9 @@ type AppEnv = {
     ADMIN_PASSWORD?: string
     JWT_SECRET: string
     ATTACHMENTS: R2Bucket
+    // The built SPA — served as-is except where a route needs its own
+    // link preview (see `servePreviewPage`).
+    ASSETS: Fetcher
     SMTP_RELAY_URL?: string
     SMTP_RELAY_TOKEN?: string
     EMAIL_FROM?: string
@@ -3005,4 +3013,48 @@ app.post('/admin/events/:slug/share-tokens/:id/revoke', async (c) => {
   })
 })
 
-export default app
+/**
+ * Serves the SPA shell for a route that needs its own link preview.
+ * Invite links get shared through WhatsApp and the like, where only
+ * the served HTML is read — so the preview tags are rewritten here
+ * before the shell goes out.
+ */
+async function servePreviewPage(
+  request: Request,
+  env: AppEnv['Bindings'],
+): Promise<Response> {
+  const shellUrl = new URL('/index.html', request.url)
+  const asset = await env.ASSETS.fetch(
+    new Request(shellUrl, { headers: request.headers }),
+  )
+  if (!asset.ok) return asset
+  const html = applyLinkPreview(
+    stripPrerenderedRoot(await asset.text()),
+    INVITE_PREVIEW,
+    request.url,
+  )
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // A preview must never be cached across different invite links,
+      // and the page itself is personal.
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+    },
+  })
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const { pathname } = new URL(request.url)
+    // `wrangler.toml` routes `/einladung/*` to the worker first.
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      pathname.startsWith('/einladung/')
+    ) {
+      return servePreviewPage(request, env)
+    }
+    return app.fetch(request, env, ctx)
+  },
+} satisfies ExportedHandler<AppEnv['Bindings']>
