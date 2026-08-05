@@ -149,7 +149,7 @@ export function EditorShell({
       <header className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-3 py-4 sm:px-6 lg:px-8">
         <Link to="/">
           <img
-            alt="Bewegung im Grünen in Jedlesee"
+            alt="Bewegung im Grünen"
             className="h-9 w-9 mix-blend-multiply"
             src="/brand/icon.png"
           />

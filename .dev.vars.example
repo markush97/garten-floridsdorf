@@ -14,4 +14,4 @@ JWT_SECRET = "local-dev-secret-please-change"
 SMTP_RELAY_URL = "https://mail-relay.beetbewegung.at"
 SMTP_RELAY_TOKEN = "change-me-long-random-string"
 # Optional override for the From address; defaults to anmeldung@beetbewegung.at.
-EMAIL_FROM = "Bewegung im Grünen in Jedlesee <anmeldung@beetbewegung.at>"
+EMAIL_FROM = "Bewegung im Grünen <anmeldung@beetbewegung.at>"

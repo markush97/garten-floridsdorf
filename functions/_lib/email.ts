@@ -9,8 +9,7 @@
  * flows stay testable.
  */
 
-const DEFAULT_FROM =
-  'Bewegung im Grünen in Jedlesee <anmeldung@beetbewegung.at>'
+const DEFAULT_FROM = 'Bewegung im Grünen <anmeldung@beetbewegung.at>'
 
 export type EmailEnv = {
   SMTP_RELAY_URL?: string
@@ -81,7 +80,7 @@ export async function sendMagicLinkEmail(
   await sendEmail(
     env,
     to,
-    'Dein Anmeldelink – Bewegung im Grünen in Jedlesee',
+    'Dein Anmeldelink – Bewegung im Grünen',
     [
       'Hallo!',
       '',

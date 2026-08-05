@@ -30,7 +30,7 @@ function AdminShell({ children }: AdminShellProps) {
         <div className="flex items-center gap-3">
           <Link to="/">
             <img
-              alt="Bewegung im Grünen in Jedlesee"
+              alt="Bewegung im Grünen"
               className="h-9 w-9 mix-blend-multiply"
               src="/brand/icon.png"
             />

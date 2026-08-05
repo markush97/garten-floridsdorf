@@ -68,7 +68,7 @@ function SharedEventPage() {
           to="/"
         >
           <img
-            alt="Bewegung im Grünen in Jedlesee"
+            alt="Bewegung im Grünen"
             className="h-9 w-9 mix-blend-multiply"
             src="/brand/icon.png"
           />

@@ -18,10 +18,8 @@ export function buildEventIcal(
   event: EventWithDetails,
   options: { prodId?: string; calendarName?: string } = {},
 ): string {
-  const prodId =
-    options.prodId ?? '-//Bewegung im Grünen in Jedlesee//Events//DE'
-  const calendarName =
-    options.calendarName ?? 'Bewegung im Grünen in Jedlesee – Termine'
+  const prodId = options.prodId ?? '-//Bewegung im Grünen//Events//DE'
+  const calendarName = options.calendarName ?? 'Bewegung im Grünen – Termine'
   const url = `/admin/events/${event.slug}`
 
   const lines: string[] = [
@@ -96,8 +94,7 @@ export function buildCalendarFeed(
   entries: FeedEntry[],
   options: { prodId?: string; calendarName?: string } = {},
 ): string {
-  const prodId =
-    options.prodId ?? '-//Bewegung im Grünen in Jedlesee//Kalender//DE'
+  const prodId = options.prodId ?? '-//Bewegung im Grünen//Kalender//DE'
   const calendarName = options.calendarName ?? 'Garten Floridsdorf'
 
   const lines: string[] = [

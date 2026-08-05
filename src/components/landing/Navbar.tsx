@@ -14,16 +14,16 @@ function Navbar() {
       <div className="flex items-center justify-between gap-3">
         <a className="group flex min-w-0 items-center gap-3" href="#top">
           <img
-            alt="Icon von Bewegung im Grünen in Jedlesee"
+            alt="Icon von Bewegung im Grünen"
             className="h-10 w-10 shrink-0 mix-blend-multiply transition duration-500 group-hover:rotate-[8deg] group-hover:scale-105 sm:h-12 sm:w-12"
             src="/brand/icon.png"
           />
           <div className="min-w-0">
             <p className="truncate font-display text-xl text-forest-900 sm:text-2xl">
-              Bewegung im Grünen in Jedlesee
+              Bewegung im Grünen
             </p>
             <p className="hidden text-sm text-forest-700/75 sm:block">
-              Floridsdorf, Garten und gemeinsame Termine
+              Jedlesee, Garten und gemeinsame Termine
             </p>
           </div>
         </a>

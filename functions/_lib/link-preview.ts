@@ -20,7 +20,7 @@ export type LinkPreview = {
 }
 
 /** The short official name, used across the previews. */
-const CLUB_NAME = 'Bewegung im Grünen in Jedlesee'
+const CLUB_NAME = 'Bewegung im Grünen'
 
 /**
  * Preview for a personal invite link. Deliberately free of personal

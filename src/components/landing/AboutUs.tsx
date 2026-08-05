@@ -43,12 +43,12 @@ function AboutUs() {
             Ein Garten, viele Hände, ein gemeinsamer Takt.
           </h2>
           <p className="max-w-[58ch] text-base text-forest-700/80 sm:text-lg">
-            Bewegung im Grünen in Jedlesee ist unser gemeinsamer Treffpunkt rund
-            um den Kleingarten in Wien-Floridsdorf. Wir kochen und grillen
-            zusammen, spielen Karten oder Federball, machen Sport, sitzen am
-            Lagerfeuer – und versorgen ganz nebenbei die Beete. Auf dieser Seite
-            bündeln wir Termine, Zusagen und alles, was rund um das nächste
-            Treffen zu klären ist.
+            Bewegung im Grünen ist unser gemeinsamer Treffpunkt rund um den
+            Kleingarten in Wien-Jedlesee. Wir kochen und grillen zusammen,
+            spielen Karten oder Federball, machen Sport, sitzen am Lagerfeuer –
+            und versorgen ganz nebenbei die Beete. Auf dieser Seite bündeln wir
+            Termine, Zusagen und alles, was rund um das nächste Treffen zu
+            klären ist.
           </p>
         </div>
 

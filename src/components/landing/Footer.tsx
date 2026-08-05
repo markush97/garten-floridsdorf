@@ -7,20 +7,20 @@ function Footer() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3 sm:gap-4">
           <img
-            alt="Logo von Bewegung im Grünen in Jedlesee"
+            alt="Logo von Bewegung im Grünen"
             className="h-12 w-auto mix-blend-multiply transition hover:rotate-[6deg] sm:h-14"
             src="/brand/logo.png"
           />
           <div>
             <p className="font-display text-lg text-forest-900 sm:text-xl">
-              Bewegung im Grünen in Jedlesee
+              Bewegung im Grünen
             </p>
             {/* The full registered name belongs in the footer. */}
             <p className="text-sm text-forest-700/80">
               Sport- und Grünflächenpflegeverein Bewegung im Grünen in Jedlesee
             </p>
             <p className="text-sm text-forest-700/80">
-              Treffen, Termine und Pläne rund um unseren Garten in Floridsdorf.
+              Treffen, Termine und Pläne rund um unseren Garten in Jedlesee.
             </p>
           </div>
         </div>
@@ -33,7 +33,7 @@ function Footer() {
             size={16}
             strokeWidth={2}
           />
-          <span>für unseren Garten in Floridsdorf.</span>
+          <span>für unseren Garten in Jedlesee.</span>
         </p>
       </div>
     </footer>

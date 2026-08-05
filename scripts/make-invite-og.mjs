@@ -160,8 +160,8 @@ const html = `<!doctype html>
       <footer>
         <img alt="" src="${logo}" />
         <div>
-          <div class="club">Bewegung im Grünen in Jedlesee</div>
-          <div class="club-full">Sport- und Grünflächenpflegeverein · Wien-Floridsdorf</div>
+          <div class="club">Bewegung im Grünen</div>
+          <div class="club-full">Sport- und Grünflächenpflegeverein · Jedlesee, Wien</div>
         </div>
       </footer>
     </div>
